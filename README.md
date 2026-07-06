@@ -1,6 +1,3 @@
-可以，下面是一版**英文 + 中文双语 README.md**，你可以直接复制到 GitHub 的 `README.md` 里。
-
-````markdown
 # Bird Image Autoencoder / 鸟类图像自编码器
 
 ## English Version
