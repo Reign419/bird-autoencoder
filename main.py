@@ -24,10 +24,13 @@ from visualize import (
     save_metric_curves,
     save_difference_grid
     )  
-from model_resnet50 import build_resnet50_autoencoder
-from model_cnn import build_cnn_autoencoder
-from model_residual import build_residual_autoencoder
-from model_residual_lite import build_residual_lite_autoencoder
+
+from model import (
+    build_cnn_autoencoder,
+    build_residual_autoencoder,
+    build_residual_lite_autoencoder,
+    build_resnet50_autoencoder
+    )
 
 gpus = tf.config.list_physical_devices("GPU")
 
