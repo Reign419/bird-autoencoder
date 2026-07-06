@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Data
+dataset/
+datasets/
+CUB_200_2011/
+
+# Outputs
+outputs/
+outputs_residual/
+outputs_resnet50/
+checkpoints/
+*.keras
+*.h5
+*.ckpt
+
+# Large arrays
+*.npy
+*.npz
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
