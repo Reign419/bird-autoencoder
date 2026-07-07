@@ -14,7 +14,7 @@ The basic pipeline is:
 Input image → Encoder → Single latent vector → Decoder → Reconstructed image
 ````
 
-This project is an early-stage baseline for studying image representation learning. The long-term motivation is to explore reliable, interpretable, and potentially causally meaningful representations for trustworthy machine learning, with possible future applications in medical imaging.
+This project is an early-stage baseline for studying image representation learning. 
 
 ---
 
@@ -42,11 +42,12 @@ bird-autoencoder/
 ├── losses.py                  # Loss functions and evaluation metrics
 ├── train_utils.py             # Training callbacks
 ├── visualize.py               # Reconstruction and loss visualization
-├── model_cnn.py               # CNN autoencoder baseline
-├── model_residual.py          # Residual autoencoder
-├── model_residual_lite.py     # Lighter residual autoencoder
-├── model_resnet50.py          # ResNet-50-based autoencoder encoder
-├── set_tf_gpu.sh              # TensorFlow GPU environment setup script
+├── model/                     # Model definitions
+│   ├── __init__.py
+│   ├── model_cnn.py           # CNN autoencoder baseline
+│   ├── model_residual.py      # Residual autoencoder
+│   ├── model_residual_lite.py # Lighter residual autoencoder
+│   └── model_resnet50.py      # ResNet-50-based autoencoder encoder
 ├── requirements.txt           # Python dependencies
 ├── .gitignore                 # Files excluded from Git tracking
 └── README.md
@@ -84,7 +85,7 @@ This model is used as a stronger encoder baseline, but it may not always improve
 
 ### 5. Dataset
 
-The experiments use the CUB-200-2011 bird image dataset.
+The experiments use the CUB-200-2011 bird image dataset. The main experiments use **full images** rather than bounding-box crops, because background information may be meaningful for later shortcut and representation analysis.
 
 The dataset is **not included** in this repository.
 
@@ -139,6 +140,41 @@ scikit-learn
 ---
 
 ### 7. Running Experiments
+
+Do not hard-code local server paths in `main.py`.
+
+Create a local config file from the example:
+
+```bash
+cp config.example.json config.json
+```
+
+Then edit `config.json`:
+
+```json
+{
+  "dataset_path": "/path/to/CUB_200_2011/images",
+  "output_path": "./outputs",
+  "model_name": "residual_lite",
+  "latent_dims": [128, 256, 512, 1024],
+  "img_size": [64, 64],
+  "test_size": 0.2,
+  "random_state": 42,
+  "learning_rate": 0.001,
+  "batch_size": 32,
+  "epochs": 70,
+  "loss": "l1_ssim_edge"
+}
+```
+
+Available model names:
+
+```text
+cnn
+residual
+residual_lite
+resnet50
+```
 
 Run the main training script:
 
@@ -204,6 +240,16 @@ l1_ssim_edge_loss
 ---
 
 ### 9. Outputs
+
+For each latent dimension, the script creates a separate output folder:
+
+```text
+outputs/
+├── residual_lite_latent128/
+├── residual_lite_latent256/
+├── residual_lite_latent512/
+└── residual_lite_latent1024/
+```
 
 Each experiment saves:
 
@@ -288,7 +334,7 @@ Future directions may include:
 
 ---
 
-### 3. 仓库结构
+### 3. Repository Structure
 
 ```text
 bird-autoencoder/
@@ -297,11 +343,12 @@ bird-autoencoder/
 ├── losses.py                  # 损失函数和评价指标
 ├── train_utils.py             # 训练 callbacks
 ├── visualize.py               # 可视化函数
-├── model_cnn.py               # CNN autoencoder baseline
-├── model_residual.py          # Residual autoencoder
-├── model_residual_lite.py     # 轻量版 residual autoencoder
-├── model_resnet50.py          # 基于 ResNet-50 encoder 的 autoencoder
-├── set_tf_gpu.sh              # TensorFlow GPU 环境设置脚本
+├── model/                     # Model definitions
+│   ├── __init__.py
+│   ├── model_cnn.py           # CNN autoencoder baseline
+│   ├── model_residual.py      # Residual autoencoder
+│   ├── model_residual_lite.py # 轻量版 residual autoencoder
+│   └── model_resnet50.py      # ResNet-50-based autoencoder encoder
 ├── requirements.txt           # Python 依赖
 ├── .gitignore                 # Git 忽略文件
 └── README.md

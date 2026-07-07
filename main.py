@@ -25,12 +25,10 @@ from visualize import (
     save_difference_grid
     )  
 
-from model import (
-    build_cnn_autoencoder,
-    build_residual_autoencoder,
-    build_residual_lite_autoencoder,
-    build_resnet50_autoencoder
-    )
+from model.model_cnn import build_cnn_autoencoder
+from model.model_residual import build_residual_autoencoder
+from model.model_residual_lite import build_residual_lite_autoencoder
+from model.model_resnet50 import build_resnet50_autoencoder
 
 gpus = tf.config.list_physical_devices("GPU")
 
@@ -69,6 +67,20 @@ def get_model(model_name, img_shape, latent_dim):
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
 
+def get_loss(loss_name):
+    if loss_name == "l1_ssim":
+        return l1_ssim_loss
+    elif loss_name == "mse_ssim":
+        return mse_ssim_loss
+    elif loss_name == "l1_ssim_edge":
+        return l1_ssim_edge_loss
+    elif loss_name == "mse_ssim_edge":
+        return mse_ssim_edge_loss
+    elif loss_name == "mse":
+        return tf.keras.losses.MeanSquaredError()
+    else:
+        raise ValueError(f"Unknown loss_name: {loss_name}")
+
 def save_json(obj, path):
     with open(path, "w") as f:
         json.dump(obj, f, indent=4)
@@ -78,27 +90,40 @@ def save_model_summary(model, path):
     with open(path, "w") as f:
         model.summary(print_fn=lambda x: f.write(x + "\n"))
 
+def load_config(config_path="config.json"):
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    return config
+
 def main():
-    dataset_path = "/cephfs/users/qin/projects/datasets/CUB_200_2011/images"
-    output_path = "/cephfs/users/qin/projects/week3"
+    base_config = load_config("config.json")
+
+    dataset_path = base_config["dataset_path"]
+    output_path = base_config["output_path"]
 
     os.makedirs(output_path, exist_ok=True)
 
-    img_size = (64, 64)
-    img_shape = (64, 64, 3)
+    img_size = tuple(base_config["img_size"])
+    img_shape = (img_size[0], img_size[1], 3)
+
+    model_name = base_config["model_name"]
+    latent_dims = base_config["latent_dims"]
+
+    learning_rate = base_config["learning_rate"]
+    batch_size = base_config["batch_size"]
+    epochs = base_config["epochs"]
+    loss_name = base_config["loss"]
+    loss_fn = get_loss(loss_name)   
 
     train_images, val_images = load_cub_images(
         dataset_path=dataset_path,
         img_size=img_size,
-        test_size=0.2,
-        random_state=42
+        test_size=base_config["test_size"],
+        random_state=base_config["random_state"]
     )
 
     train_comparison_images = train_images[:10]
     val_comparison_images = val_images[:10]
-
-    model_name = "residual_lite"      ###  设置调用的模型
-    latent_dims = [128, 256, 512, 1024]  ###  设置调用的模型的latent_dim
 
     results = []
 
@@ -109,19 +134,20 @@ def main():
         run_output_path = os.path.join(output_path, run_name)
         os.makedirs(run_output_path, exist_ok=True)
 
-        config = {
+        run_config = {
             "model_name": model_name,
             "latent_dim": latent_dim,
             "dataset_path": dataset_path,
-            "img_size": img_size,
-            "img_shape": img_shape,
+            "output_path": run_output_path,
+            "img_size": list(img_size),
+            "img_shape": list(img_shape),
             "train_size": int(train_images.shape[0]),
             "val_size": int(val_images.shape[0]),
-            "test_size": 0.2,
-            "random_state": 42,
+            "test_size": base_config["test_size"],
+            "random_state": base_config["random_state"],
             "optimizer": "Adam",
-            "learning_rate": 1e-3,
-            "loss": "l1_ssim_edge_loss",
+            "learning_rate": learning_rate,
+            "loss": loss_name,
             "metrics": [
                 "mse_metric",
                 "l1_metric",
@@ -130,20 +156,20 @@ def main():
                 "edge_metric",
                 "psnr_metric"
             ],
-            "epochs": 60,
-            "batch_size": 32,
+            "epochs": epochs,
+            "batch_size": batch_size,
             "early_stopping": True,
             "reduce_lr_on_plateau": True,
             "checkpoint": True,
         }
 
         if model_name == "resnet50":
-            config["resnet50_weights"] = None
-            config["train_backbone"] = True
-            config["feature_layer"] = "conv3_block4_out"
+            run_config["resnet50_weights"] = None
+            run_config["train_backbone"] = True
+            run_config["feature_layer"] = "conv3_block4_out"
 
         save_json(
-            config,
+            run_config,
             os.path.join(run_output_path, "config.json")
         )
 
@@ -169,8 +195,8 @@ def main():
         )
 
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-            loss=l1_ssim_edge_loss,
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+            loss=loss_fn,
             metrics=[
                 mse_metric,
                 l1_metric,
@@ -196,8 +222,8 @@ def main():
             train_images,
             train_images,
             validation_data=(val_images, val_images),
-            epochs=60,
-            batch_size=32,
+            epochs=epochs,
+            batch_size=batch_size,
             callbacks=callbacks,
             verbose=1
         )
@@ -207,7 +233,7 @@ def main():
         train_eval = model.evaluate(
             train_images,
             train_images,
-            batch_size=32,
+            batch_size=batch_size,
             verbose=0,
             return_dict=True
         )
@@ -215,7 +241,7 @@ def main():
         val_eval = model.evaluate(
             val_images,
             val_images,
-            batch_size=32,
+            batch_size=batch_size,
             verbose=0,
             return_dict=True
         )

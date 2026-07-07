@@ -1,0 +1,13 @@
+{
+    "dataset_path": "/cephfs/users/qin/projects/datasets/CUB_200_2011/images",
+    "output_path": "./outputs",
+    "model_name": "residual_lite",
+    "latent_dims": [128, 256, 512, 1024],
+    "img_size": [64, 64],
+    "test_size": 0.2,
+    "random_state": 42,
+    "learning_rate": 0.001,
+    "batch_size": 32,
+    "epochs": 60,
+    "loss": "l1_ssim_edge"
+}
