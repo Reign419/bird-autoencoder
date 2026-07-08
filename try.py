@@ -46,36 +46,82 @@ if gpus:
 else:
     print("No GPU detected. TensorFlow will use CPU.")
 
+experiments = [
+    {
+        "model_name": "residual_lite",
+        "latent_dim": 256,
+        "latent_shape": "256",
+        "effective_latent_size": 256,
+    },
+    {
+        "model_name": "spatial_lite",
+        "latent_channels": 4,
+        "latent_shape": "8x8x4",
+        "effective_latent_size": 256,
+    },
+    {
+        "model_name": "residual_lite",
+        "latent_dim": 512,
+        "latent_shape": "512",
+        "effective_latent_size": 512,
+    },
+    {
+        "model_name": "spatial_lite",
+        "latent_channels": 8,
+        "latent_shape": "8x8x8",
+        "effective_latent_size": 512,
+    },
+    {
+        "model_name": "spatial_lite",
+        "latent_channels": 2,
+        "latent_shape": "8x8x2",
+        "effective_latent_size": 128,
+    },
+    {
+        "model_name": "spatial_lite",
+        "latent_channels": 16,
+        "latent_shape": "8x8x16",
+        "effective_latent_size": 1024,
+    },
+]
 
-def get_model(model_name, img_shape, latent_dim):
+
+def get_model(exp, img_shape):
+    model_name = exp["model_name"]
+
     if model_name == "cnn":
         return build_cnn_autoencoder(
             img_shape=img_shape,
-            latent_dim=latent_dim
+            latent_dim=exp["latent_dim"]
         )
+
     elif model_name == "residual":
         return build_residual_autoencoder(
             img_shape=img_shape,
-            latent_dim=latent_dim
+            latent_dim=exp["latent_dim"]
         )
+
     elif model_name == "residual_lite":
         return build_residual_lite_autoencoder(
             img_shape=img_shape,
-            latent_dim=latent_dim
+            latent_dim=exp["latent_dim"]
         )
+
     elif model_name == "resnet50":
         return build_resnet50_autoencoder(
             img_shape=img_shape,
-            latent_dim=latent_dim,
+            latent_dim=exp["latent_dim"],
             weights=None,
             train_backbone=True,
             feature_layer="conv3_block4_out"
         )
+
     elif model_name == "spatial_lite":
         return build_spatial_lite_autoencoder(
             img_shape=img_shape,
-            latent_channels=latent_dim
+            latent_channels=exp["latent_channels"]
         )
+
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
 
@@ -144,16 +190,37 @@ def main():
 
     results = []
 
-    for latent_dim in latent_dims:
-        print(f"\n===== Training {model_name}, latent_dim={latent_dim} =====")
+    for exp in experiments:
+        model_name = exp["model_name"]
+        latent_shape = exp["latent_shape"]
+        effective_latent_size = exp["effective_latent_size"]
 
-        run_name = f"{model_name}_latent{latent_dim}_{timestamp}"
+        run_name = f"{model_name}_latent_{latent_shape.replace('x', '_')}"
         run_output_path = os.path.join(output_path, run_name)
         os.makedirs(run_output_path, exist_ok=True)
 
+        if model_name == "resnet50":
+            run_config["resnet50_weights"] = None
+            run_config["train_backbone"] = True
+            run_config["feature_layer"] = "conv3_block4_out"
+        # if model_name == "spatial_lite":
+        #     latent_shape = f"8x8x{latent_dim}"
+        #     effective_latent_size = 8 * 8 * latent_dim
+        # else:
+        #     latent_shape = f"{latent_dim}"
+        #     effective_latent_size = latent_dim
+
+        print(f"\n===== Training {run_name} =====")
+
+        model, encoder, decoder = get_model(
+        exp=exp,
+        img_shape=img_shape
+        )
+
         run_config = {
             "model_name": model_name,
-            "latent_dim_or_channels": latent_dim,
+            "latent_shape": latent_shape,
+            "effective_latent_size": effective_latent_size,
             "dataset_path": dataset_path,
             "output_path": run_output_path,
             "img_size": list(img_size),
@@ -180,26 +247,10 @@ def main():
             "checkpoint": True,
         }
 
-        if model_name == "resnet50":
-            run_config["resnet50_weights"] = None
-            run_config["train_backbone"] = True
-            run_config["feature_layer"] = "conv3_block4_out"
-        if model_name == "spatial_lite":
-            latent_shape = f"8x8x{latent_dim}"
-            effective_latent_size = 8 * 8 * latent_dim
-        else:
-            latent_shape = f"{latent_dim}"
-            effective_latent_size = latent_dim
 
         save_json(
             run_config,
             os.path.join(run_output_path, "config.json")
-        )
-
-        model, encoder, decoder = get_model(
-            model_name=model_name,
-            img_shape=img_shape,
-            latent_dim=latent_dim
         )
 
         save_model_summary(
@@ -271,7 +322,8 @@ def main():
 
         result = {
             "model": model_name,
-            "latent_dim_or_channels": latent_dim,
+            "latent_shape": latent_shape,
+            "effective_latent_size": effective_latent_size,
             "best_epoch": best_epoch + 1,
             # "batch_size": batch_size,
             "best_val_loss": history.history["val_loss"][best_epoch],
