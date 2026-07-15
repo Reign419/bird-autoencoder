@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 
 def load_cub_images(
     dataset_path,
-    img_size=(64, 64),
+    img_size=(128, 128),
     test_size=0.2,
     random_state=42
 ):

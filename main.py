@@ -1,11 +1,10 @@
 import os
 import json
+import tensorflow as tf
+import pandas as pd
+import numpy as np
 import random
 from datetime import datetime
-
-import numpy as np
-import pandas as pd
-import tensorflow as tf
 
 from data import load_cub_images
 from losses import (
@@ -18,14 +17,18 @@ from losses import (
     ssim_metric,
     ssim_loss_metric,
     edge_metric,
-    psnr_metric,
-)
+    psnr_metric
+    )
 from train_utils import get_callbacks
 from visualize import (
     save_reconstruction_grid,
     save_loss_curve,
     save_metric_curves,
-    save_difference_grid,
+    save_difference_grid
+    )  
+from perceptual import (
+    perceptual_metric,
+    make_l1_ssim_edge_perceptual_loss,
 )
 
 from model.model_cnn import build_cnn_autoencoder
@@ -33,7 +36,6 @@ from model.model_residual import build_residual_autoencoder
 from model.model_residual_lite import build_residual_lite_autoencoder
 from model.model_resnet50 import build_resnet50_autoencoder
 from model.model_spatial_lite import build_spatial_lite_autoencoder
-
 
 SUPPORTED_MODELS = {"cnn", "residual", "residual_lite", "resnet50", "spatial_lite"}
 
@@ -55,7 +57,16 @@ def configure_gpu_memory_growth():
         print("No GPU detected. TensorFlow will use CPU.")
 
 
-def get_model(model_name, img_shape, latent_dim=None, latent_channels=None, latent_grid_size=8):
+def get_model(
+        model_name,
+        img_shape,
+        latent_dim=None,
+        latent_channels=None,
+        latent_grid_size=8,
+        resnet50_weights=None,
+        train_backbone=True,
+        feature_layer="conv3_block4_out",
+    ):
     if model_name == "cnn":
         return build_cnn_autoencoder(
             img_shape=img_shape,
@@ -75,9 +86,9 @@ def get_model(model_name, img_shape, latent_dim=None, latent_channels=None, late
         return build_resnet50_autoencoder(
             img_shape=img_shape,
             latent_dim=latent_dim,
-            weights=None,
-            train_backbone=True,
-            feature_layer="conv3_block4_out",
+            weights=resnet50_weights,
+            train_backbone=train_backbone,
+            feature_layer=feature_layer,
         )
     if model_name == "spatial_lite":
         return build_spatial_lite_autoencoder(
@@ -85,11 +96,24 @@ def get_model(model_name, img_shape, latent_dim=None, latent_channels=None, late
             latent_channels=latent_channels,
             latent_grid_size=latent_grid_size,
         )
+    if model_name == "residual_vector_strong":
+        return build_residual_vector_strong_autoencoder(
+            img_shape=img_shape,
+            latent_dim=latent_dim,
+            base_filters=64,
+        )
+    if model_name == "resnet50_strong":
+        return build_resnet50_strong_autoencoder(
+            img_shape=img_shape,
+            latent_dim=latent_dim,
+            weights=None,
+            train_backbone=True,
+        )
 
     raise ValueError(f"Unknown model_name: {model_name}")
 
 
-def get_loss(loss_name):
+def get_loss(loss_name, perceptual_weight=0.0):
     if loss_name == "mse":
         return tf.keras.losses.MeanSquaredError()
     if loss_name == "l1":
@@ -100,6 +124,12 @@ def get_loss(loss_name):
         return mse_ssim_loss
     if loss_name == "l1_ssim_edge":
         return l1_ssim_edge_loss
+    if loss_name == "l1_ssim_edge_perceptual":
+        return make_l1_ssim_edge_perceptual_loss(
+            perceptual_weight=float(perceptual_weight),
+            ssim_weight=0.2,
+            edge_weight=0.1,
+        )
     if loss_name == "mse_ssim_edge":
         return mse_ssim_edge_loss
 
@@ -148,14 +178,26 @@ def build_experiment_list(base_config):
 
     1. New recommended mode:
        "experiments": [
-           {"name": "dense256", "model_name": "residual_lite", "latent_dim": 256},
-           {"name": "spatial_8x8x4", "model_name": "spatial_lite", "latent_grid_size": 8, "latent_channels": 4}
+           {"name": "dense256", 
+            "model_name": "residual_lite", 
+            "latent_dim": 256},
+           {"name": "spatial_8x8x4", 
+            "model_name": "spatial_lite", 
+            "latent_grid_size": 8, 
+            "latent_channels": 4}
        ]
 
     2. Backward-compatible mode:
        "model_name": "residual_lite",
        "latent_dims": [128, 256, 512]
     """
+    def as_list(value, key_name):
+        if value is None:
+            raise ValueError(f"Missing {key_name} in config.")
+        if isinstance(value, (list, tuple)):
+            return value
+        return [value]
+
     if "experiments" in base_config:
         experiments = []
         for idx, exp in enumerate(base_config["experiments"]):
@@ -171,28 +213,44 @@ def build_experiment_list(base_config):
 
     model_name = base_config["model_name"]
     experiments = []
-    for latent_value in base_config["latent_dims"]:
-        if model_name == "spatial_lite":
+
+    if model_name == "spatial_lite":
+        # spatial_lite uses channels, so read latent_channels like latent_dims.
+        latent_values = as_list(
+            base_config.get("latent_channels", base_config.get("latent_dim")),
+            "latent_channels",
+        )
+        latent_grid_size = int(base_config.get("latent_grid_size", 8))
+
+        for latent_channels in latent_values:
             experiments.append({
-                "name": f"spatial_{base_config.get('latent_grid_size', 8)}x{base_config.get('latent_grid_size', 8)}x{latent_value}",
+                "name": f"spatial_{latent_grid_size}x{latent_grid_size}x{latent_channels}",
                 "model_name": model_name,
-                "latent_grid_size": base_config.get("latent_grid_size", 8),
-                "latent_channels": latent_value,
+                "latent_grid_size": latent_grid_size,
+                "latent_channels": latent_channels,
                 "loss": base_config.get("loss", "l1_ssim_edge"),
                 "learning_rate": base_config.get("learning_rate", 1e-3),
                 "batch_size": base_config.get("batch_size", 32),
                 "epochs": base_config.get("epochs", 70),
             })
-        else:
-            experiments.append({
-                "name": f"{model_name}_latent{latent_value}",
-                "model_name": model_name,
-                "latent_dim": latent_value,
-                "loss": base_config.get("loss", "l1_ssim_edge"),
-                "learning_rate": base_config.get("learning_rate", 1e-3),
-                "batch_size": base_config.get("batch_size", 32),
-                "epochs": base_config.get("epochs", 70),
-            })
+        return experiments
+
+        # cnn / residual / residual_lite / resnet50 use dense latent_dim.
+    # Prefer latent_dims=[...] from config, but keep latent_dim=... compatible.
+    latent_values = as_list(
+        base_config.get("latent_dims", base_config.get("latent_dim")), "latent_dims", )
+
+    for latent_dim in latent_values:
+        experiments.append({
+            "name": f"{model_name}_latent{latent_dim}",
+            "model_name": model_name,
+            "latent_dim": latent_dim,
+            "loss": base_config.get("loss", "l1_ssim_edge"),
+            "learning_rate": base_config.get("learning_rate", 1e-3),
+            "batch_size": base_config.get("batch_size", 32),
+            "epochs": base_config.get("epochs", 70),
+        })
+
     return experiments
 
 
@@ -275,20 +333,65 @@ def main():
 
     for exp in experiments:
         model_name = exp["model_name"]
-        loss_name = exp.get("loss", base_config.get("loss", "l1_ssim_edge"))
-        loss_fn = get_loss(loss_name)
-        learning_rate = float(exp.get("learning_rate", base_config.get("learning_rate", 1e-3)))
-        batch_size = int(exp.get("batch_size", base_config.get("batch_size", 32)))
-        epochs = int(exp.get("epochs", base_config.get("epochs", 70)))
+        loss_name = exp.get("loss", 
+            base_config.get("loss", "l1_ssim_edge")
+        )
+        perceptual_weight = float(
+            exp.get("perceptual_weight", 
+            base_config.get("perceptual_weight", 0.0))
+        )
+        loss_fn = get_loss(loss_name,       
+            perceptual_weight=perceptual_weight)
+        learning_rate = float(exp.get("learning_rate", 
+            base_config.get("learning_rate", 1e-3)))
+        batch_size = int(exp.get("batch_size", 
+            base_config.get("batch_size", 32)))
+        epochs = int(exp.get("epochs", 
+            base_config.get("epochs", 70)))
+        track_perceptual_metric = bool(
+            exp.get(
+                "track_perceptual_metric",
+                base_config.get(
+                    "track_perceptual_metric",
+                    loss_name == "l1_ssim_edge_perceptual",
+                ),
+            )
+        )
 
-        run_name = f"{exp['name']}_{loss_name}_{timestamp}"
+        metrics = [
+            mse_metric,
+            l1_metric,
+            ssim_metric,
+            ssim_loss_metric,
+            edge_metric,
+            psnr_metric,
+        ]
+        if track_perceptual_metric:
+            from perceptual import perceptual_metric
+
+            metrics.append(perceptual_metric)
+
+        resnet50_weights = exp.get(
+            "resnet50_weights", base_config.get("resnet50_weights")
+        )
+        train_backbone = bool(
+            exp.get("train_backbone", base_config.get("train_backbone", True))
+        )
+        feature_layer = exp.get(
+            "feature_layer", base_config.get("feature_layer", "conv3_block4_out")
+        )
+
+        loss_label = loss_name
+        if loss_name == "l1_ssim_edge_perceptual":
+            weight_label = str(perceptual_weight).replace(".", "p")
+            loss_label = f"{loss_name}_pw{weight_label}"
+        run_name = f"{exp['name']}_{loss_label}_{timestamp}"
         run_output_path = os.path.join(output_path, run_name)
         os.makedirs(run_output_path, exist_ok=True)
 
         print(
             f"\n===== Training {model_name}, latent={exp['latent_shape']}, "
-            f"effective_size={exp['effective_latent_size']}, loss={loss_name} ====="
-        )
+            f"effective_size={exp['effective_latent_size']}, loss={loss_name} =====")
 
         run_config = {
             "run_name": run_name,
@@ -309,14 +412,7 @@ def main():
             "optimizer": "Adam",
             "learning_rate": learning_rate,
             "loss": loss_name,
-            "metrics": [
-                "mse_metric",
-                "l1_metric",
-                "ssim_metric",
-                "ssim_loss_metric",
-                "edge_metric",
-                "psnr_metric",
-            ],
+            "metrics": [metric.__name__ for metric in metrics],
             "epochs": epochs,
             "batch_size": batch_size,
             "early_stopping": True,
@@ -325,9 +421,9 @@ def main():
         }
 
         if model_name == "resnet50":
-            run_config["resnet50_weights"] = None
-            run_config["train_backbone"] = True
-            run_config["feature_layer"] = "conv3_block4_out"
+            run_config["resnet50_weights"] = resnet50_weights
+            run_config["train_backbone"] = train_backbone
+            run_config["feature_layer"] = feature_layer
 
         save_json(run_config, os.path.join(run_output_path, "config.json"))
 
@@ -337,6 +433,9 @@ def main():
             latent_dim=exp["latent_dim"],
             latent_channels=exp["latent_channels"],
             latent_grid_size=exp["latent_grid_size"] or 8,
+            resnet50_weights=resnet50_weights,
+            train_backbone=train_backbone,
+            feature_layer=feature_layer,
         )
 
         save_model_summary(model, os.path.join(run_output_path, "model_summary.txt"))
@@ -346,14 +445,7 @@ def main():
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
             loss=loss_fn,
-            metrics=[
-                mse_metric,
-                l1_metric,
-                ssim_metric,
-                ssim_loss_metric,
-                edge_metric,
-                psnr_metric,
-            ],
+            metrics=metrics
         )
 
         callbacks = get_callbacks(
@@ -398,6 +490,7 @@ def main():
             "run_name": run_name,
             "model": model_name,
             "loss": loss_name,
+            "perceptual_weight": perceptual_weight,
             "latent_shape": exp["latent_shape"],
             "latent_dim_or_channels": exp["latent_channels"] if model_name == "spatial_lite" else exp["latent_dim"],
             "effective_latent_size": exp["effective_latent_size"],
@@ -422,6 +515,13 @@ def main():
             "final_val_edge": val_eval["edge_metric"],
             "final_val_psnr": val_eval["psnr_metric"],
         }
+
+        if track_perceptual_metric:
+            result.update({
+                "best_val_perceptual": history.history["val_perceptual_metric"][best_epoch],
+                "final_train_perceptual": train_eval["perceptual_metric"],
+                "final_val_perceptual": val_eval["perceptual_metric"],
+            })
 
         results.append(result)
         save_json(result, os.path.join(run_output_path, "result.json"))

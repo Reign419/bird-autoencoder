@@ -61,4 +61,4 @@ def mse_ssim_edge_loss(y_true, y_pred):
     ssim_loss = ssim_loss_metric(y_true, y_pred)
     edge = edge_metric(y_true, y_pred)
 
-    return mse + 0.1 * ssim_loss + 0.1 * edge
+    return 0.5 * mse + 0.2 * ssim_loss + 0.1 * edge

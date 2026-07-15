@@ -2,28 +2,18 @@ import tensorflow as tf
 from tensorflow.keras import layers, Model
 
 
-def conv_bn_act(x, filters, kernel_size=3, strides=1):
-    x = layers.Conv2D(
-        filters,
-        kernel_size,
-        strides=strides,
-        padding="same",
-        use_bias=False,
-        kernel_initializer="he_normal"
-    )(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.LeakyReLU(negative_slope=0.1)(x)
-    return x
-
-
-def up_block(x, filters):
-    x = layers.UpSampling2D(
-        size=(2, 2),
-        interpolation="bilinear"
-    )(x)
-    x = conv_bn_act(x, filters)
-    x = conv_bn_act(x, filters)
-    return x
+try:
+    from .model_common import (
+        conv_bn_act,
+        double_conv_up_block,
+        resolve_latent_grid,
+    )
+except ImportError:
+    from model_common import (
+        conv_bn_act,
+        double_conv_up_block,
+        resolve_latent_grid,
+    )
 
 
 def build_resnet50_autoencoder(
@@ -31,16 +21,26 @@ def build_resnet50_autoencoder(
     latent_dim=128,
     weights=None,
     train_backbone=True,
-    feature_layer="conv3_block4_out"
+    feature_layer="conv3_block4_out",
+    latent_grid_size=8,
 ):
     """
     ResNet-50 encoder + single Dense latent vector + decoder.
 
-    feature_layer:
-        "conv3_block4_out" -> about 8x8 feature map for 64x64 input
-        "conv4_block6_out" -> about 4x4 feature map
-        "conv5_block3_out" -> about 2x2 feature map, usually too compressed
+    Works for both 64x64 and 128x128 inputs.
+
+    feature_layer (native ResNet output before grid normalisation):
+        "conv3_block4_out" -> about 8x8 for 64x64, about 16x16 for 128x128
+        "conv4_block6_out" -> about 4x4 for 64x64, about 8x8 for 128x128
+        "conv5_block3_out" -> about 2x2 for 64x64, about 4x4 for 128x128
+
+    Extra stride-2 convolution blocks reduce a feature map that is larger than
+    ``latent_grid_size``. A smaller selected backbone feature map is resized.
+    The decoder uses three upsampling stages for 64x64 and four for 128x128
+    when the target grid is 8x8.
     """
+
+    start_h, start_w, n_up = resolve_latent_grid(img_shape, latent_grid_size)
 
     encoder_input = layers.Input(shape=img_shape)
 
@@ -59,13 +59,33 @@ def build_resnet50_autoencoder(
 
     base_resnet.trainable = train_backbone
 
-    # Use intermediate feature map instead of final 2x2 output
     feature_map = base_resnet.get_layer(feature_layer).output
 
-    # For 64x64 input and conv3_block4_out, this should be 8x8x512
+    # Normalise all supported backbone feature layers and input resolutions to
+    # the same pre-flatten spatial grid. For the default conv3 feature, 128x128
+    # gets one extra learned downsampling block (16x16 -> 8x8), while 64x64 is
+    # already 8x8.
+    feature_h = int(feature_map.shape[1])
+    feature_w = int(feature_map.shape[2])
+    feature_c = int(feature_map.shape[3])
+
+    while feature_h > start_h and feature_w > start_w:
+        if feature_h % 2 or feature_w % 2:
+            raise ValueError("Backbone feature size cannot be halved to the target grid.")
+        feature_map = conv_bn_act(feature_map, feature_c, strides=2)
+        feature_h //= 2
+        feature_w //= 2
+
+    if feature_h != start_h or feature_w != start_w:
+        feature_map = layers.Resizing(
+            start_h,
+            start_w,
+            interpolation="bilinear",
+            name="latent_grid_resize",
+        )(feature_map)
+
     x = layers.Flatten()(feature_map)
 
-    # Single-layer latent vector
     latent = layers.Dense(
         latent_dim,
         name="latent_vector"
@@ -82,20 +102,15 @@ def build_resnet50_autoencoder(
     # =====================
     decoder_input = layers.Input(shape=(latent_dim,))
 
-    if feature_layer == "conv3_block4_out":
-        start_h, start_w, start_c = 8, 8, 512
-        up_filters = [256, 128, 64]      # 8 -> 16 -> 32 -> 64
-
-    elif feature_layer == "conv4_block6_out":
-        start_h, start_w, start_c = 4, 4, 1024
-        up_filters = [512, 256, 128, 64] # 4 -> 8 -> 16 -> 32 -> 64
-
-    elif feature_layer == "conv5_block3_out":
-        start_h, start_w, start_c = 2, 2, 2048
-        up_filters = [1024, 512, 256, 128, 64] # 2 -> 4 -> 8 -> 16 -> 32 -> 64
-
-    else:
+    if feature_layer not in {
+        "conv3_block4_out",
+        "conv4_block6_out",
+        "conv5_block3_out",
+    }:
         raise ValueError(f"Unsupported feature_layer: {feature_layer}")
+
+    start_c = int(feature_map.shape[-1])
+    up_filters = [max(start_c // (2 ** (i + 1)), 32) for i in range(n_up)]
 
     x = layers.Dense(start_h * start_w * start_c)(decoder_input)
     x = layers.Reshape((start_h, start_w, start_c))(x)
@@ -104,7 +119,7 @@ def build_resnet50_autoencoder(
     x = conv_bn_act(x, start_c)
 
     for filters in up_filters:
-        x = up_block(x, filters)
+        x = double_conv_up_block(x, filters)
 
     decoder_output = layers.Conv2D(
         3,

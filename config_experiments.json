@@ -1,0 +1,45 @@
+{
+  "dataset_path": "/cephfs/users/qin/projects/dataset/CUB_200_2011/images",
+  "output_path": "/cephfs/users/qin/projects/code/stage1/outputs_perceptual_dense512",
+
+  "img_size": [128, 128],
+  "test_size": 0.2,
+  "random_state": 42,
+
+  "learning_rate": 0.001,
+  "batch_size": 32,
+  "epochs": 100,
+
+  "model_name": "residual_lite",
+  "latent_dims": [512],
+  "loss": "l1_ssim_edge",
+
+  "summary_name": "summary_perceptual_sweep_dense512.csv",
+
+  "experiments": [
+    {
+      "model_name": "residual_lite",
+      "latent_dim": 512,
+      "loss": "l1_ssim_edge",
+      "perceptual_weight": 0.0
+    },
+    {
+      "model_name": "residual_lite",
+      "latent_dim": 512,
+      "loss": "l1_ssim_edge_perceptual",
+      "perceptual_weight": 0.02
+    },
+    {
+      "model_name": "residual_lite",
+      "latent_dim": 512,
+      "loss": "l1_ssim_edge_perceptual",
+      "perceptual_weight": 0.05
+    },
+    {
+      "model_name": "residual_lite",
+      "latent_dim": 512,
+      "loss": "l1_ssim_edge_perceptual",
+      "perceptual_weight": 0.1
+    }
+  ]
+}

@@ -4,11 +4,7 @@ import tensorflow as tf
 import pandas as pd
 import numpy as np
 import random
-
-seed = base_config["random_state"]
-random.seed(seed)
-np.random.seed(seed)
-tf.keras.utils.set_random_seed(seed)
+from datetime import datetime
 
 from data import load_cub_images
 from losses import (
@@ -30,6 +26,10 @@ from visualize import (
     save_metric_curves,
     save_difference_grid
     )  
+from perceptual import (
+    perceptual_metric,
+    make_l1_ssim_edge_perceptual_loss,
+)
 
 from model.model_cnn import build_cnn_autoencoder
 from model.model_residual import build_residual_autoencoder
@@ -46,92 +46,107 @@ if gpus:
 else:
     print("No GPU detected. TensorFlow will use CPU.")
 
-experiments = [
-    {
-        "model_name": "residual_lite",
-        "latent_dim": 256,
-        "latent_shape": "256",
-        "effective_latent_size": 256,
-    },
-    {
-        "model_name": "spatial_lite",
-        "latent_channels": 4,
-        "latent_shape": "8x8x4",
-        "effective_latent_size": 256,
-    },
-    {
-        "model_name": "residual_lite",
-        "latent_dim": 512,
-        "latent_shape": "512",
-        "effective_latent_size": 512,
-    },
-    {
-        "model_name": "spatial_lite",
-        "latent_channels": 8,
-        "latent_shape": "8x8x8",
-        "effective_latent_size": 512,
-    },
-    {
-        "model_name": "spatial_lite",
-        "latent_channels": 2,
-        "latent_shape": "8x8x2",
-        "effective_latent_size": 128,
-    },
-    {
-        "model_name": "spatial_lite",
-        "latent_channels": 16,
-        "latent_shape": "8x8x16",
-        "effective_latent_size": 1024,
-    },
-]
+def build_experiment_list(base_config):
+    if "experiments" in base_config:
+        experiments = []
+        for idx, exp in enumerate(base_config["experiments"]):
+            merged = dict(exp)
+            merged.setdefault("name", f"experiment_{idx:02d}")
+            merged.setdefault("loss", base_config.get("loss", "l1_ssim_edge"))
+            merged.setdefault("learning_rate", base_config.get("learning_rate", 1e-3))
+            merged.setdefault("batch_size", base_config.get("batch_size", 32))
+            merged.setdefault("epochs", base_config.get("epochs", 60))
+            return_experiment = merged
+            experiments.append(return_experiment)
+        return experiments
 
+    raise ValueError("Please use experiments in config.json.")
 
-def get_model(exp, img_shape):
+def normalize_experiment(exp):
     model_name = exp["model_name"]
 
+    if model_name == "spatial_lite":
+        latent_grid_size = int(exp.get("latent_grid_size", 8))
+        latent_channels = int(exp["latent_channels"])
+
+        latent_shape = f"{latent_grid_size}x{latent_grid_size}x{latent_channels}"
+        effective_latent_size = latent_grid_size * latent_grid_size * latent_channels
+
+        exp["latent_dim"] = None
+        exp["latent_channels"] = latent_channels
+        exp["latent_grid_size"] = latent_grid_size
+        exp["latent_shape"] = latent_shape
+        exp["effective_latent_size"] = effective_latent_size
+        exp["latent_label"] = latent_shape
+
+        return exp
+
+    else:
+        latent_dim = int(exp["latent_dim"])
+        exp["latent_dim"] = latent_dim
+        exp["latent_channels"] = None
+        exp["latent_grid_size"] = None
+        exp["latent_shape"] = str(latent_dim)
+        exp["effective_latent_size"] = latent_dim
+        exp["latent_label"] = str(latent_dim)
+
+        return exp
+
+
+def get_model(
+    model_name,
+    img_shape,
+    latent_dim=None,
+    latent_channels=None,
+    latent_grid_size=8
+):
     if model_name == "cnn":
         return build_cnn_autoencoder(
             img_shape=img_shape,
-            latent_dim=exp["latent_dim"]
+            latent_dim=latent_dim
         )
-
     elif model_name == "residual":
         return build_residual_autoencoder(
             img_shape=img_shape,
-            latent_dim=exp["latent_dim"]
+            latent_dim=latent_dim
         )
-
     elif model_name == "residual_lite":
         return build_residual_lite_autoencoder(
             img_shape=img_shape,
-            latent_dim=exp["latent_dim"]
+            latent_dim=latent_dim
         )
-
     elif model_name == "resnet50":
         return build_resnet50_autoencoder(
             img_shape=img_shape,
-            latent_dim=exp["latent_dim"],
+            latent_dim=latent_dim,
             weights=None,
             train_backbone=True,
             feature_layer="conv3_block4_out"
         )
-
     elif model_name == "spatial_lite":
         return build_spatial_lite_autoencoder(
             img_shape=img_shape,
-            latent_channels=exp["latent_channels"]
+            latent_channels=latent_channels,
+            latent_grid_size=latent_grid_size
         )
-
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
 
-def get_loss(loss_name):
+def get_loss(loss_name, perceptual_weight=0.0):
     if loss_name == "l1_ssim":
         return l1_ssim_loss
     elif loss_name == "mse_ssim":
         return mse_ssim_loss
     elif loss_name == "l1_ssim_edge":
         return l1_ssim_edge_loss
+    elif loss_name == "l1_ssim_edge_perceptual":
+        if perceptual_weight is None:
+            perceptual_weight = 0.05
+        return make_l1_ssim_edge_perceptual_loss(
+            perceptual_weight=perceptual_weight,
+            ssim_weight=0.2,
+            edge_weight=0.1,
+        )
     elif loss_name == "mse_ssim_edge":
         return mse_ssim_edge_loss
     elif loss_name == "mse":
@@ -160,6 +175,11 @@ def load_config(config_path="config.json"):
 
 def main():
     base_config = load_config("config.json")
+
+    seed = base_config["random_state"]
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.keras.utils.set_random_seed(seed)
 
     dataset_path = base_config["dataset_path"]
     output_path = base_config["output_path"]
@@ -190,37 +210,54 @@ def main():
 
     results = []
 
+    experiments = [
+        normalize_experiment(exp)
+        for exp in build_experiment_list(base_config)
+    ]
+
     for exp in experiments:
         model_name = exp["model_name"]
-        latent_shape = exp["latent_shape"]
-        effective_latent_size = exp["effective_latent_size"]
+        loss_name = exp.get(
+            "loss", 
+            base_config.get("loss", "l1_ssim_edge")
+        )
+        perceptual_weight = exp.get(
+            "perceptual_weight",
+            base_config.get("perceptual_weight", 0.0)
+        )
+        loss_fn = get_loss(
+            loss_name,
+            perceptual_weight=perceptual_weight
+        )
 
-        run_name = f"{model_name}_latent_{latent_shape.replace('x', '_')}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        model, encoder, decoder = get_model(
+            model_name=model_name,
+            img_shape=img_shape,
+            latent_dim=exp["latent_dim"],
+            latent_channels=exp["latent_channels"],
+            latent_grid_size=exp.get("latent_grid_size", 8)
+        )
+
+        latent_label = exp["latent_label"]  # 例如 "8x8x4"
+        loss_label = loss_name
+        if loss_name == "l1_ssim_edge_perceptual":
+            pw_label = str(perceptual_weight).replace(".", "p")
+            loss_label = f"{loss_name}_pw{pw_label}"
+        run_name = (
+            f"{model_name}_latent_{latent_label.replace('x', '_')}_"
+            f"{loss_label}_{timestamp}"
+        )
         run_output_path = os.path.join(output_path, run_name)
         os.makedirs(run_output_path, exist_ok=True)
 
-        if model_name == "resnet50":
-            run_config["resnet50_weights"] = None
-            run_config["train_backbone"] = True
-            run_config["feature_layer"] = "conv3_block4_out"
-        # if model_name == "spatial_lite":
-        #     latent_shape = f"8x8x{latent_dim}"
-        #     effective_latent_size = 8 * 8 * latent_dim
-        # else:
-        #     latent_shape = f"{latent_dim}"
-        #     effective_latent_size = latent_dim
-
         print(f"\n===== Training {run_name} =====")
-
-        model, encoder, decoder = get_model(
-        exp=exp,
-        img_shape=img_shape
-        )
 
         run_config = {
             "model_name": model_name,
-            "latent_shape": latent_shape,
-            "effective_latent_size": effective_latent_size,
+            "latent_shape": exp["latent_shape"],
+            "effective_latent_size": exp["effective_latent_size"],
             "dataset_path": dataset_path,
             "output_path": run_output_path,
             "img_size": list(img_size),
@@ -238,8 +275,10 @@ def main():
                 "ssim_metric",
                 "ssim_loss_metric",
                 "edge_metric",
-                "psnr_metric"
+                "psnr_metric",
+                "perceptual_metric"
             ],
+            "perceptual_weight": perceptual_weight,
             "epochs": epochs,
             "batch_size": batch_size,
             "early_stopping": True,
@@ -277,14 +316,15 @@ def main():
                 ssim_metric,
                 ssim_loss_metric,
                 edge_metric,
-                psnr_metric
+                psnr_metric,
+                perceptual_metric
             ]
         )
 
         callbacks = get_callbacks(
             output_path=run_output_path,
             model_name=model_name,
-            latent_dim=latent_dim
+            latent_dim=latent_label
         )
 
         csv_logger = tf.keras.callbacks.CSVLogger(
@@ -322,8 +362,10 @@ def main():
 
         result = {
             "model": model_name,
-            "latent_shape": latent_shape,
-            "effective_latent_size": effective_latent_size,
+            "latent_shape": exp["latent_shape"],
+            "loss_name": loss_name,
+            "perceptual_weight": perceptual_weight,
+            "effective_latent_size": exp["effective_latent_size"],
             "best_epoch": best_epoch + 1,
             # "batch_size": batch_size,
             "best_val_loss": history.history["val_loss"][best_epoch],
@@ -333,6 +375,7 @@ def main():
             "best_val_ssim_loss": history.history["val_ssim_loss_metric"][best_epoch],
             "best_val_edge": history.history["val_edge_metric"][best_epoch],
             "best_val_psnr": history.history["val_psnr_metric"][best_epoch],
+            "best_val_perceptual": history.history["val_perceptual_metric"][best_epoch],
 
             "final_train_loss": train_eval["loss"],
             "final_train_mse": train_eval["mse_metric"],
@@ -340,20 +383,15 @@ def main():
             "final_train_ssim": train_eval["ssim_metric"],
             "final_train_edge": train_eval["edge_metric"],
             "final_train_psnr": train_eval["psnr_metric"],
-
+            "final_train_perceptual": train_eval["perceptual_metric"],
             "final_val_loss": val_eval["loss"],
             "final_val_mse": val_eval["mse_metric"],
             "final_val_l1": val_eval["l1_metric"],
             "final_val_ssim": val_eval["ssim_metric"],
             "final_val_edge": val_eval["edge_metric"],
             "final_val_psnr": val_eval["psnr_metric"],
+            "final_val_perceptual": val_eval["perceptual_metric"],
         }
-
-        # 目前只有model:spatial_lite才有latent_shape和effective_latent_size
-        if 'latent_shape' in locals():
-            result["latent_shape"] = latent_shape
-        if 'effective_latent_size' in locals():
-            result["effective_latent_size"] = effective_latent_size
 
         results.append(result)
 
@@ -406,9 +444,10 @@ def main():
             title=f"Validation Difference: {run_name}"
         )
 
+    
     df = pd.DataFrame(results)
     df.to_csv(
-        os.path.join(output_path, f"summary_results_{model_name}.csv"),
+        os.path.join(output_path, f"summary_results_{model_name}_{timestamp}.csv"),
         index=False
     )
 

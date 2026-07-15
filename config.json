@@ -1,14 +1,27 @@
 {
     "dataset_path": "/cephfs/users/qin/projects/datasets/CUB_200_2011/images",
-    "output_path": "/projects/outputs",
-    "model_name": "spatial_lite",
-    "latent_dims": [126, 256, 512, 1024],
+    "output_path": "/cephfs/users/qin/projects/outputs/cnn_dense1024",
+
+    "model_name": "cnn",
+    "latent_dims": [128],
     "latent_channels": [4, 8, 16],
+    "latent_grid_size": 8,
+    "base_channels": 64,
+    "max_channels": 256,
+
+    "loss": "l1_ssim_edge",
+    "perceptual_weight": 0.0,
+    "track_perceptual_metric": false,
+
     "img_size": [64, 64],
     "test_size": 0.2,
     "random_state": 42,
+
     "learning_rate": 0.001,
     "batch_size": 32,
-    "epochs": 60,
-    "loss": "l1_ssim_edge"
+    "epochs": 70,
+
+    "resnet50_weights": null,
+    "train_backbone": true,
+    "feature_layer": "conv3_block4_out"
 }
