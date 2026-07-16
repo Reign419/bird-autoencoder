@@ -19,7 +19,7 @@ except ImportError:
         resolve_latent_grid,
     )
 
-ddef build_residual_lite_autoencoder(
+def build_residual_lite_autoencoder(
     img_shape=(64, 64, 3),
     latent_dim=128,
     base_channels=64,

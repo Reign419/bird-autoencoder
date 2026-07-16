@@ -38,7 +38,6 @@ from model.model_residual_lite import build_residual_lite_autoencoder
 from model.model_resnet50 import build_resnet50_autoencoder
 from model.model_spatial_lite import build_spatial_lite_autoencoder
 from model.model_bottleneck_ablation import build_bottleneck_ablation_autoencoder
-from model.model_structured_vector_lite import build_structured_vector_lite_autoencoder
 
 gpus = tf.config.list_physical_devices("GPU")
 
@@ -67,28 +66,6 @@ def build_experiment_list(base_config):
 
 def normalize_experiment(exp):
     model_name = exp["model_name"]
-
-    if model_name == "structured_vector_lite":
-        latent_dim = int(exp["latent_dim"])
-        latent_grid_size = int(exp.get("latent_grid_size", 8))
-        spatial_area = latent_grid_size * latent_grid_size
-        if latent_dim % spatial_area:
-            raise ValueError(
-                f"structured_vector_lite latent_dim={latent_dim} must be "
-                f"divisible by grid area {spatial_area}."
-            )
-        latent_channels = latent_dim // spatial_area
-
-        exp["latent_dim"] = latent_dim
-        exp["latent_channels"] = latent_channels
-        exp["latent_grid_size"] = latent_grid_size
-        exp["latent_shape"] = str(latent_dim)
-        exp["effective_latent_size"] = latent_dim
-        exp["latent_label"] = (
-            f"vector{latent_dim}_from_"
-            f"{latent_grid_size}x{latent_grid_size}x{latent_channels}"
-        )
-        return exp
 
     if model_name == "bottleneck_ablation":
         variant = exp["variant"]
@@ -187,14 +164,6 @@ def get_model(
             max_channels=experiment.get("max_channels", 256),
             mixing_initializer=experiment.get("mixing_initializer", "orthogonal"),
             mixing_trainable=experiment.get("mixing_trainable", True),
-        )
-    elif model_name == "structured_vector_lite":
-        return build_structured_vector_lite_autoencoder(
-            img_shape=img_shape,
-            latent_dim=latent_dim,
-            latent_grid_size=latent_grid_size,
-            base_channels=experiment.get("base_channels", 64),
-            max_channels=experiment.get("max_channels", 256),
         )
     else:
         raise ValueError(f"Unknown model_name: {model_name}")

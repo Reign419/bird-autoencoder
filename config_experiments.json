@@ -1,6 +1,6 @@
 {
-  "dataset_path": "/cephfs/users/qin/projects/dataset/CUB_200_2011/images",
-  "output_path": "/cephfs/users/qin/projects/code/stage1/outputs_perceptual_dense512",
+  "dataset_path": "/cephfs/users/qin/projects/datasets/CUB_200_2011/images",
+  "output_path": "/cephfs/users/qin/projects/outputs/structured_vector",
 
   "img_size": [128, 128],
   "test_size": 0.2,
@@ -18,28 +18,16 @@
 
   "experiments": [
     {
-      "model_name": "residual_lite",
-      "latent_dim": 512,
-      "loss": "l1_ssim_edge",
-      "perceptual_weight": 0.0
+      "name": "structured_vector_K1024",
+      "model_name": "structured_vector_lite",
+      "latent_dim": 1024,
+      "latent_grid_size": 8
     },
     {
-      "model_name": "residual_lite",
-      "latent_dim": 512,
-      "loss": "l1_ssim_edge_perceptual",
-      "perceptual_weight": 0.02
-    },
-    {
-      "model_name": "residual_lite",
-      "latent_dim": 512,
-      "loss": "l1_ssim_edge_perceptual",
-      "perceptual_weight": 0.05
-    },
-    {
-      "model_name": "residual_lite",
-      "latent_dim": 512,
-      "loss": "l1_ssim_edge_perceptual",
-      "perceptual_weight": 0.1
+      "name": "structured_vector_K2048",
+      "model_name": "structured_vector_lite",
+      "latent_dim": 2048,
+      "latent_grid_size": 8
     }
   ]
 }

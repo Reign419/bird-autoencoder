@@ -1,0 +1,86 @@
+{
+  "dataset_path": "/cephfs/users/qin/projects/datasets/CUB_200_2011/images",
+  "output_path": "/cephfs/users/qin/projects/outputs/bottleneck_ablation",
+  "img_size": [64, 64],
+  "test_size": 0.2,
+  "random_state": 42,
+  "learning_rate": 0.001,
+  "batch_size": 32,
+  "epochs": 70,
+  "loss": "l1_ssim_edge",
+  "experiments": [
+    {
+      "name": "A_spatial_identity",
+      "model_name": "bottleneck_ablation",
+      "variant": "A",
+      "latent_grid_size": 8,
+      "spatial_channels": 8
+    },
+    {
+      "name": "C_prime_global_mixing_identity_init",
+      "model_name": "bottleneck_ablation",
+      "variant": "C_prime",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "mixing_initializer": "identity",
+      "mixing_trainable": true
+    },
+    {
+      "name": "C_prime_global_mixing_orthogonal_fixed",
+      "model_name": "bottleneck_ablation",
+      "variant": "C_prime",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "mixing_initializer": "orthogonal",
+      "mixing_trainable": false
+    },
+    {
+      "name": "C_global_K256",
+      "model_name": "bottleneck_ablation",
+      "variant": "C",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "compressed_dim": 256
+    },
+    {
+      "name": "D_spatial_K256",
+      "model_name": "bottleneck_ablation",
+      "variant": "D",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "compressed_dim": 256
+    },
+    {
+      "name": "C_global_K128",
+      "model_name": "bottleneck_ablation",
+      "variant": "C",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "compressed_dim": 128
+    },
+    {
+      "name": "D_spatial_K128",
+      "model_name": "bottleneck_ablation",
+      "variant": "D",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "compressed_dim": 128
+    },
+    {
+      "name": "C_global_K64",
+      "model_name": "bottleneck_ablation",
+      "variant": "C",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "compressed_dim": 64
+    },
+    {
+      "name": "D_spatial_K64",
+      "model_name": "bottleneck_ablation",
+      "variant": "D",
+      "latent_grid_size": 8,
+      "spatial_channels": 8,
+      "compressed_dim": 64
+    }
+  ]
+}
