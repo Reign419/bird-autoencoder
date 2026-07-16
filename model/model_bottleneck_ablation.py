@@ -1,5 +1,7 @@
 """Controlled bottleneck ablations for spatial mixing versus compression."""
 
+import numpy as np
+import tensorflow as tf
 from tensorflow.keras import Model, initializers, layers
 
 try:
@@ -22,7 +24,44 @@ except ImportError:
     )
 
 
-VARIANTS = {"A", "C_prime", "C", "D"}
+VARIANTS = {"A", "P", "C_prime", "C", "D"}
+
+
+@tf.keras.utils.register_keras_serializable(package="bird_autoencoder")
+class FixedPermutation(layers.Layer):
+    """Apply one deterministic, non-trainable block permutation per vector."""
+
+    def __init__(self, seed=42, block_size=1, **kwargs):
+        super().__init__(**kwargs)
+        self.seed = int(seed)
+        self.block_size = int(block_size)
+        if self.block_size < 1:
+            raise ValueError("block_size must be positive")
+        self._permutation = None
+
+    def build(self, input_shape):
+        feature_dim = input_shape[-1]
+        if feature_dim is None:
+            raise ValueError("FixedPermutation requires a known final dimension")
+        feature_dim = int(feature_dim)
+        if feature_dim % self.block_size:
+            raise ValueError("feature dimension must be divisible by block_size")
+        group_count = feature_dim // self.block_size
+        group_order = np.random.default_rng(self.seed).permutation(group_count)
+        offsets = np.arange(self.block_size)
+        permutation = (group_order[:, None] * self.block_size + offsets).reshape(-1)
+        self._permutation = tf.constant(permutation, dtype=tf.int32)
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return tf.gather(inputs, self._permutation, axis=-1)
+
+    def get_config(self):
+        return {
+            **super().get_config(),
+            "seed": self.seed,
+            "block_size": self.block_size,
+        }
 
 
 def _mixing_initializer(name):
@@ -47,14 +86,19 @@ def build_bottleneck_ablation_autoencoder(
     max_channels=256,
     mixing_initializer="orthogonal",
     mixing_trainable=True,
+    permutation_seed=42,
 ):
-    """Build A/C'/C/D with a shared encoder stem and identical decoder.
+    """Build A/P/C'/C/D with a shared encoder stem and identical decoder.
 
     The common representation has shape ``H x W x spatial_channels``.  Let
     ``N = H * W * spatial_channels``.
 
     A
         Identity spatial bottleneck.
+    P
+        Flatten -> fixed random spatial-position permutation -> reshape. Every
+        feature value and within-position channel order is preserved exactly,
+        but the H*W positions are reassigned deterministically.
     C_prime
         Flatten -> Dense(N) -> reshape. This is global mixing without
         dimensional compression.
@@ -104,6 +148,18 @@ def build_bottleneck_ablation_autoencoder(
 
     if variant == "A":
         bottleneck = layers.Activation("linear", name="bottleneck_A_identity")(common_map)
+        effective_dim = full_dim
+    elif variant == "P":
+        x = layers.Flatten(name="flatten_for_fixed_permutation")(common_map)
+        x = FixedPermutation(
+            seed=permutation_seed,
+            block_size=spatial_channels,
+            name="bottleneck_P_fixed_permutation",
+        )(x)
+        bottleneck = layers.Reshape(
+            (latent_h, latent_w, spatial_channels),
+            name="reshape_after_fixed_permutation",
+        )(x)
         effective_dim = full_dim
     elif variant == "C_prime":
         x = layers.Flatten(name="flatten_for_global_mixing")(common_map)
@@ -184,5 +240,6 @@ def build_bottleneck_ablation_autoencoder(
         "common_shape": (latent_h, latent_w, spatial_channels),
         "full_dim": full_dim,
         "effective_dim": effective_dim,
+        "permutation_seed": permutation_seed if variant == "P" else None,
     }
     return autoencoder, encoder, decoder
