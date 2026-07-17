@@ -1,0 +1,45 @@
+{
+  "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
+  "selected_attributes_path": "outputs/attribute_preparation/selected_attributes.json",
+  "output_path": "outputs/factorized_smoke",
+  "img_size": [64, 64],
+  "validation_fraction": 0.15,
+  "split_seed": 42,
+  "training_seeds": [42],
+  "learning_rate": 0.001,
+  "gradient_clipnorm": 1.0,
+  "positive_class_weight_cap": 10.0,
+  "batch_size": 8,
+  "epochs": 2,
+  "early_stopping_patience": 2,
+  "reduce_lr_patience": 1,
+  "monitor": "val_reconstruction_ssim_metric",
+  "monitor_mode": "max",
+  "evaluate_official_test": false,
+  "save_probe_latents": false,
+  "max_samples_per_split": 64,
+  "intervention_max_images": 16,
+  "reconstruction_loss": {
+    "pixel": "l1",
+    "pixel_weight": 1.0,
+    "ssim_weight": 0.2,
+    "edge_weight": 0.1
+  },
+  "experiments": [
+    {
+      "name": "factorized_smoke",
+      "mode": "concept",
+      "concept_weight": 1.0,
+      "semantic_method": "ste",
+      "residual_dropout": 0.1,
+      "residual_noise_std": 0.05
+    },
+    {
+      "name": "control_smoke",
+      "mode": "control",
+      "control_noise_std": "auto",
+      "residual_dropout": 0.1,
+      "residual_noise_std": 0.05
+    }
+  ]
+}

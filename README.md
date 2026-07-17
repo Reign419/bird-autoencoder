@@ -1,5 +1,15 @@
 # Bird Autoencoder
 
+Phase 2 concept/residual experiments are implemented in `main_factorized.py`.
+They use the official CUB split, certainty-weighted image attributes, whole
+attribute-group selection, a fixed `[8,8,15]` residual, matched continuous
+controls, hard/soft concept diagnostics, group interventions, optional CUB
+part-landmark ROIs, and residual-to-concept probes.
+
+See [ATTRIBUTE_EXPERIMENTS.md](ATTRIBUTE_EXPERIMENTS.md) for the exact staged
+experiment protocol.  Phase 1 topology experiments remain available through
+`main_experiment.py` and are not changed by the Phase 2 runner.
+
 Controlled autoencoder experiments on CUB-200-2011 for studying how latent
 topology, global mixing, compression, and decoder accessibility affect image
 reconstruction.

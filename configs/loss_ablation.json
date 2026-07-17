@@ -20,39 +20,6 @@
   "summary_name": "all_runs.csv",
   "experiments": [
     {
-      "name": "A_spatial_identity",
-      "model_name": "bottleneck_ablation",
-      "variant": "A",
-      "latent_grid_size": 8,
-      "spatial_channels": 8
-    },
-    {
-      "name": "P_fixed_permutation",
-      "model_name": "bottleneck_ablation",
-      "variant": "P",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "permutation_seed": 42
-    },
-    {
-      "name": "C_prime_identity_trainable",
-      "model_name": "bottleneck_ablation",
-      "variant": "C_prime",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "mixing_initializer": "identity",
-      "mixing_trainable": true
-    },
-    {
-      "name": "C_prime_orthogonal_fixed",
-      "model_name": "bottleneck_ablation",
-      "variant": "C_prime",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "mixing_initializer": "orthogonal",
-      "mixing_trainable": false
-    },
-    {
       "name": "C_global_K256",
       "model_name": "bottleneck_ablation",
       "variant": "C",

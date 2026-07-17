@@ -36,8 +36,13 @@ def aggregate_mean_std(runs, group_columns=None):
     metric_columns = [
         column
         for column in runs.columns
-        if column.startswith("best_val_") or column.startswith("final_val_")
+        if column.startswith("best_val_")
+        or column.startswith("final_val_")
+        or column.startswith("mean_")
+        or column.startswith("validation_")
     ]
+    if not metric_columns:
+        raise ValueError("No recognized metric columns were found in result.json files")
     summary = runs.groupby(group_columns, dropna=False)[metric_columns].agg(["mean", "std", "count"])
     summary.columns = [f"{metric}_{stat}" for metric, stat in summary.columns]
     return summary.reset_index()
