@@ -4,68 +4,37 @@
   "img_size": [64, 64],
   "test_size": 0.2,
   "split_seed": 42,
-  "training_seeds": [42, 43, 44],
+  "training_seed": 42,
   "learning_rate": 0.001,
   "batch_size": 32,
   "epochs": 100,
-  "loss": {
-    "pixel": "l1",
-    "pixel_weight": 1.0,
-    "ssim_weight": 0.2,
-    "edge_weight": 0.1
-  },
   "monitor": "val_ssim_metric",
   "monitor_mode": "max",
-  "early_stopping_patience": 10,
   "summary_name": "all_runs.csv",
   "experiments": [
     {
-      "name": "C_global_K256",
-      "model_name": "bottleneck_ablation",
-      "variant": "C",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "compressed_dim": 256
+      "name": "L0_l1",
+      "model_name": "structured_vector_lite",
+      "latent_dim": 1024,
+      "loss": {"pixel": "l1", "pixel_weight": 1.0, "ssim_weight": 0.0, "edge_weight": 0.0}
     },
     {
-      "name": "D_spatial_K256",
-      "model_name": "bottleneck_ablation",
-      "variant": "D",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "compressed_dim": 256
+      "name": "L1_l1_ssim",
+      "model_name": "structured_vector_lite",
+      "latent_dim": 1024,
+      "loss": {"pixel": "l1", "pixel_weight": 1.0, "ssim_weight": 0.2, "edge_weight": 0.0}
     },
     {
-      "name": "C_global_K128",
-      "model_name": "bottleneck_ablation",
-      "variant": "C",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "compressed_dim": 128
+      "name": "L2_l1_edge",
+      "model_name": "structured_vector_lite",
+      "latent_dim": 1024,
+      "loss": {"pixel": "l1", "pixel_weight": 1.0, "ssim_weight": 0.0, "edge_weight": 0.1}
     },
     {
-      "name": "D_spatial_K128",
-      "model_name": "bottleneck_ablation",
-      "variant": "D",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "compressed_dim": 128
-    },
-    {
-      "name": "C_global_K64",
-      "model_name": "bottleneck_ablation",
-      "variant": "C",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "compressed_dim": 64
-    },
-    {
-      "name": "D_spatial_K64",
-      "model_name": "bottleneck_ablation",
-      "variant": "D",
-      "latent_grid_size": 8,
-      "spatial_channels": 8,
-      "compressed_dim": 64
+      "name": "L3_l1_ssim_edge",
+      "model_name": "structured_vector_lite",
+      "latent_dim": 1024,
+      "loss": {"pixel": "l1", "pixel_weight": 1.0, "ssim_weight": 0.2, "edge_weight": 0.1}
     }
   ]
 }
