@@ -47,6 +47,32 @@ class OfficialTestReleaseGuardTest(unittest.TestCase):
             }
         )
 
+    def test_standalone_release_requires_confirmatory_run_name(self):
+        with self.assertRaises(PermissionError):
+            validate_official_test_release(
+                {
+                    "run_name": "pilot_standalone_concept",
+                    "evaluate_official_test": True,
+                    "official_test_release": True,
+                }
+            )
+        validate_official_test_release(
+            {
+                "run_name": "confirmatory_standalone_concept",
+                "evaluate_official_test": True,
+                "official_test_release": True,
+            }
+        )
+
+    def test_nameless_release_is_rejected(self):
+        with self.assertRaises(PermissionError):
+            validate_official_test_release(
+                {
+                    "evaluate_official_test": True,
+                    "official_test_release": True,
+                }
+            )
+
 
 try:
     import tensorflow as tf
