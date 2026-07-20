@@ -1,11 +1,10 @@
 # CUB factorized concept experiments
 
-This file describes the code-supported Stage 2 workflow. The current scientific
-target is an Interpretability Workshop study of reconstruction quality, concept
-observability, decoder concept use, and residual side channels.
+This file describes the code-supported Stage 2 workflow for an Interpretability
+Workshop study of concept observability, reconstruction, decoder concept use,
+and residual side channels.
 
-Stage 1 topology experiments remain available through `main_experiment.py` and
-are not modified by this workflow.
+Stage 1 topology experiments remain available through `main_experiment.py`.
 
 ---
 
@@ -26,22 +25,17 @@ Use:
 python run_factorized.py --config CONFIG.json
 ```
 
-Official-test evaluation is rejected unless:
+Official-test evaluation is rejected unless both release flags are true and all
+configured run names contain `confirmatory`. The guard also runs inside
+`main_factorized.main()`, so direct invocation cannot silently bypass it.
 
-1. `evaluate_official_test` is explicitly `true`;
-2. `official_test_release` is explicitly `true`;
-3. every experiment name contains `confirmatory`.
-
-The same validation runs inside `main_factorized.main()`, so direct invocation
-cannot silently bypass the release guard.
-
-### Pilot and confirmatory seeds
+### Seeds
 
 - pilot training seed: `41`;
 - confirmatory training seeds: `42`, `43`, `44`;
 - split seed is separate from training seed;
-- a replacement seed may be used only for a recorded infrastructure failure,
-  never to replace model collapse or an unfavourable result.
+- replacement seeds are allowed only for logged infrastructure failures, not
+  for model collapse or unfavourable outcomes.
 
 ---
 
@@ -60,9 +54,6 @@ CUB_200_2011/
     └── part_locs.txt
 ```
 
-The first metadata pass creates `cache/attribute_labels.npz`; later runs reuse
-it.
-
 ---
 
 ## 3. Environment and checks
@@ -75,13 +66,14 @@ python -m compileall -q .
 python -m unittest discover -s tests -v
 ```
 
-The factorized tests include:
+The factorized tests cover:
 
-- official-test release guard checks;
+- official-test release rules;
 - fixed residual-mask parameter invariance;
-- concept/control parameter-budget matching.
+- concept/control parameter-budget matching;
+- Keras save/load of the residual mask.
 
-Do not start GPU experiments if these tests fail.
+Do not start GPU runs while these checks fail.
 
 ---
 
@@ -93,43 +85,39 @@ python prepare_attributes.py \
   --output outputs/attribute_preparation
 ```
 
+The initial group selection uses only the train subset inside official train.
+
 Expected outputs:
 
 ```text
-outputs/attribute_preparation/
-├── attribute_statistics.csv
-├── group_statistics.csv
-├── split_manifest.csv
-├── selected_attributes.json
-└── attribute_selection_report.md
+attribute_statistics.csv
+group_statistics.csv
+split_manifest.csv
+selected_attributes.json
+attribute_selection_report.md
 ```
-
-The initial selection uses only the train subset inside official train.
 
 ---
 
 ## 5. Smoke test
 
-Edit paths in `configs/factorized_smoke.json`, then run:
-
 ```bash
 python run_factorized.py --config configs/factorized_smoke.json
 ```
 
-This uses at most 64 images per split and never loads official-test images.
+The smoke config is seed 41, validation-only, and cannot load official-test
+images.
 
 ---
 
 ## 6. Standalone concept observability upper bound
-
-Run:
 
 ```bash
 python standalone_concept_predictor.py \
   --config configs/standalone_concept_pilot.json
 ```
 
-The architecture is:
+The predictor graph is exactly:
 
 ```text
 shared convolutional trunk
@@ -138,11 +126,16 @@ shared convolutional trunk
 -> sigmoid
 ```
 
-It has no residual path, `SemanticBottleneck`, decoder, or reconstruction loss.
-This is the primary evidence for whether the selected CUB concepts are
-observable at 64×64 under the current trunk.
+It has no residual branch, `SemanticBottleneck`, decoder, or reconstruction
+loss.
 
-Expected outputs:
+The train-internal validation pool is split into two disjoint, class-stratified
+subsets:
+
+- `selection_validation`: early stopping and concept/group selection;
+- `reporting_validation`: untouched held-out observability reporting.
+
+Outputs:
 
 ```text
 outputs/standalone_concept_pilot/
@@ -152,12 +145,13 @@ outputs/standalone_concept_pilot/
 ├── split_manifest.csv
 ├── selected_attribute_definitions.csv
 ├── concept_metrics.csv
-└── concept_group_metrics.csv
+├── concept_group_metrics.csv
+├── reporting_concept_metrics.csv
+└── reporting_concept_group_metrics.csv
 ```
 
-Freeze attribute groups using selection-validation metrics only. Reported
-standalone upper-bound metrics must later come from a held-out split that did
-not participate in selection.
+The backward-compatible `concept_metrics.csv` files are selection-only. Do not
+quote them as an unbiased upper bound. Use `reporting_*` for held-out reporting.
 
 ---
 
@@ -172,21 +166,19 @@ python analysis/refine_attribute_selection.py \
   --output outputs/attribute_preparation/selected_attributes_predictable_groups.json
 ```
 
-Do not use official-test, reconstruction, or intervention results to refine the
-subset.
+Do not use reporting-validation, official-test, reconstruction, or intervention
+results to refine the subset.
 
 ---
 
 ## 8. Fixed-geometry residual capacity pilot
-
-Run:
 
 ```bash
 python run_factorized.py \
   --config configs/factorized_capacity_pilot.json
 ```
 
-The config uses seed `41` and validation only.
+The config uses seed 41 and validation only.
 
 Residual capacity is implemented as:
 
@@ -196,49 +188,43 @@ Conv2D(15) residual head
 -> always-shaped 8×8×15 decoder input
 ```
 
-Active channels are 15, 8, 4, and 2, corresponding to 960, 512, 256, and 128
-active scalars. The residual head and decoder parameter counts must be identical
-at every capacity.
+Active channels 15/8/4/2 correspond to 960/512/256/128 active scalars. Encoder
+and decoder trainable parameter counts must remain identical.
 
 ### Matched unsupervised control
-
-The current matched control follows the same condition topology as concepts:
 
 ```text
 c: Dense(Dc) -> sigmoid -> SemanticBottleneck + concept loss
 u: Dense(Dc) -> sigmoid -> SemanticBottleneck + no concept loss
 ```
 
-The old `LayerNorm -> tanh -> Gaussian` control is no longer used for primary
-comparisons. Its information capacity and decoder accessibility were not
-matched to a binary semantic code.
+The old `LayerNorm -> tanh -> Gaussian` control is not used for primary
+comparisons because its information capacity and decoder accessibility were not
+matched to the binary semantic code.
 
 ---
 
 ## 9. Structural confound: global concept path
 
-The current concept path applies global average pooling before concept
-prediction. The residual path preserves the `8×8` feature grid. Therefore the
-concept path cannot carry instance-specific spatial location, while the
-residual can.
+The concept path applies global average pooling before concept prediction. The
+residual path preserves the `8×8` feature grid. Therefore, the concept code
+cannot carry instance-specific spatial location before the bottleneck, while
+the residual can.
 
-This is intentional for image-level CUB attributes, but it creates an important
-alternative explanation for low concept effects:
+Low concept effects may reflect:
 
-1. accessible residual bypass;
-2. weak conditioning or joint-training competition;
-3. limited concept observability;
-4. structural spatial disadvantage of the concept path.
+1. limited concept observability;
+2. joint-training/discretization failure;
+3. accessible residual bypass;
+4. structural spatial disadvantage of the global concept path.
 
-The current four-way interpretation must be preserved in analysis and
-limitations. A null concept-intervention result does not isolate one mechanism
-by itself.
+A null concept-intervention result does not isolate one mechanism.
 
 ---
 
-## 10. Concept and residual diagnostics
+## 10. Diagnostics
 
-Each concept run may write:
+Concept runs may write:
 
 ```text
 concept_metrics.csv
@@ -250,22 +236,19 @@ train_probe_latents.npz
 figures/group_interventions/
 ```
 
-Interpret them jointly:
+Interpret jointly:
 
-- soft much better than hard: discretization may be costly;
-- visible ground truth much better than hard: concept prediction is limiting;
-- concept intervention has little effect: decoder neglect, spatial disadvantage,
-  or residual dominance remains possible;
-- large `m -> concept` probe lift: concept information is recoverable from the
-  residual;
-- recoverable information is not automatically information used by the decoder;
+- soft better than hard: discretization may be costly;
+- visible ground truth better than hard: concept prediction is limiting;
+- low intervention effect: decoder neglect, spatial disadvantage, or residual
+  dominance remains possible;
+- positive `m -> concept` lift: concept information is recoverable from the
+  residual, not necessarily used by the decoder;
 - bbox and landmark ROI metrics are approximations, not segmentation proof.
 
 ---
 
 ## 11. Residual-to-concept probes
-
-Fast linear diagnostic:
 
 ```bash
 python analysis/concept_probe.py \
@@ -277,40 +260,37 @@ python analysis/concept_probe.py \
 
 For confirmatory real/null inference:
 
-1. choose and freeze linear regularization and all probe hyperparameters on
-   seed-41 pilot latents;
-2. use the same fixed hyperparameters for the real probe and every null;
-3. preserve complete label/certainty rows when permuting supervision;
-4. do not perform a new grid search inside each null replicate;
+1. choose and freeze all probe hyperparameters on seed-41 pilot latents;
+2. use the same fixed values for real and every null;
+3. preserve complete label/certainty supervision records when permuting;
+4. do not run a new grid search inside each null replicate;
 5. treat MLP nulls as exploratory unless adequately powered.
 
 ---
 
-## 12. Corruption experiments are archived
+## 12. Archived corruption experiments
 
-Mild and medium residual corruption are not part of the primary path before the
-leakage/conditioning mechanism gate. Their previous config is preserved at:
+Residual corruption is not part of the primary path before the mechanism gate.
+The previous configuration is preserved at:
 
 ```text
 configs/archive/factorized_corruption_legacy.json
 ```
 
-Do not run it as part of the primary capacity study.
-
 ---
 
 ## 13. Confirmatory release
 
-The repository intentionally does not provide an already-released official-test
-config. After the subset, retained capacity points, checkpoint rules, and
-analysis definitions are frozen:
+The repository does not ship a pre-released official-test config. After the
+subset, retained capacities, checkpoint rules, and analysis definitions are
+frozen:
 
 1. create a dedicated confirmatory config;
 2. use pre-registered seeds;
-3. include `confirmatory` in every experiment name;
-4. set both official-test flags to `true`;
-5. run once through `run_factorized.py`;
-6. record the release date and commit in the experiment log.
+3. include `confirmatory` in every configured run name;
+4. set both release flags to true;
+5. run once through the guarded entry point;
+6. record release date and commit in the experiment log.
 
-Any earlier access to official test must be disclosed rather than silently
-relabelled as untouched evaluation.
+Any earlier official-test access must be disclosed rather than relabelled as
+untouched evaluation.
