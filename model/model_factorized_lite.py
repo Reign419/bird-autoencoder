@@ -85,6 +85,9 @@ class ChannelMask(layers.Layer):
     """
 
     def __init__(self, active_channels, max_channels=15, **kwargs):
+        # Keras includes ``trainable`` in serialized base-layer config. Remove it
+        # before forcing this structural mask to remain non-trainable.
+        kwargs.pop("trainable", None)
         super().__init__(trainable=False, **kwargs)
         self.active_channels = int(active_channels)
         self.max_channels = int(max_channels)
@@ -102,6 +105,7 @@ class ChannelMask(layers.Layer):
             self.max_channels - self.active_channels
         )
         self.mask = tf.constant(mask, dtype=self.compute_dtype)[None, None, None, :]
+        super().build(input_shape)
 
     def call(self, inputs):
         return inputs * tf.cast(self.mask, inputs.dtype)
