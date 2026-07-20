@@ -132,6 +132,45 @@ python analysis/concept_probe.py \
 `probe_ap_lift` measures how much concept information remains recoverable from
 `m` above the prevalence baseline.
 
+The command above remains the backward-compatible fast linear probe.  For the
+pre-registered two-level real-vs-null diagnostic, use the same output reference
+and add:
+
+```bash
+python analysis/concept_probe.py \
+  --train-latents outputs/factorized_concepts/RUN/train_probe_latents.npz \
+  --validation-latents outputs/factorized_concepts/RUN/validation_latents.npz \
+  --test-latents outputs/factorized_concepts/RUN/official_test_probe_latents.npz \
+  --evaluation-split test \
+  --attribute-definitions outputs/factorized_concepts/selected_attribute_definitions.csv \
+  --output outputs/factorized_concepts/RUN/concept_probe.csv \
+  --probe-types linear,mlp \
+  --null-repeats 20 \
+  --jobs 4
+```
+
+The example uses 20 permutations as a diagnostic pilot. Empirical p-values and
+FDR q-values are coarse at that resolution; increase `--null-repeats` for
+confirmatory inference. Each permutation moves an atomic label together with
+its certainty weight, preserving the observed label/certainty distribution
+while breaking the relationship between `m` and that concept.
+
+The legacy `concept_probe.csv` and `concept_probe_groups.csv` filenames and
+columns are unchanged.  Detailed outputs are additive:
+
+```text
+concept_probe_linear.csv
+concept_probe_linear_null.csv
+concept_probe_mlp.csv
+concept_probe_mlp_null.csv
+concept_probe_comparison.csv
+concept_probe_summary.json
+```
+
+Interpret linear lift as low-complexity accessibility and MLP lift as nonlinear
+recoverability.  An MLP-only signal is evidence that information exists in `m`,
+but is not by itself proof that the current decoder can easily use it.
+
 After all probes finish, aggregate every axis across seeds:
 
 ```bash
@@ -150,6 +189,7 @@ group_interventions.csv
 figures/group_interventions/*.png
 validation_latents.npz
 train_probe_latents.npz
+official_test_probe_latents.npz
 official_test_result.json
 ```
 
@@ -159,8 +199,10 @@ Interpret them together:
 - ground truth much better than hard: concept prediction is the bottleneck;
 - group shuffle has no effect: decoder is ignoring concepts;
 - large `m -> concept` probe lift: concept leakage remains in the residual;
-- local ROI effects are landmark-centred approximations, not segmentation-mask
-  measurements;
+- bird bounding-box effects are not segmentation-mask measurements;
+- local ROI effects are landmark-centred approximations; interpret target/non-target
+  enrichment and Top-1% overlap together rather than treating either as strict
+  localization proof;
 - global SSIM can underestimate localized changes, so always inspect pixel
   change, effective-change subsets, and difference maps.
 
@@ -181,7 +223,36 @@ The implementation uses Binary Concrete/Gumbel-sigmoid for atomic multi-label
 attributes and hard thresholds at test time.  Treat this as a pre-registered
 fallback, not another result chosen after looking at official-test scores.
 
-## 10. Reporting
+## 10. Predictable complete groups and capacity sweep
+
+Freeze a complete-group primary subset without changing the historical JSON
+reference pattern:
+
+```bash
+python analysis/refine_attribute_selection.py \
+  --initial-selection outputs/attribute_preparation/selected_attributes_final.json \
+  --concept-metrics outputs/concept_pilot/RUN/concept_metrics.csv \
+  --attribute-definitions outputs/attribute_preparation/attribute_definitions.csv \
+  --output outputs/attribute_preparation/selected_attributes_predictable_groups.json \
+  --min-group-ap-lift 0.05 \
+  --min-attribute-ap-lift 0.05 \
+  --min-balanced-accuracy 0.60 \
+  --min-positive-count 25 \
+  --min-negative-count 25 \
+  --min-predictable-fraction 0.60
+```
+
+The main JSON contains complete admitted groups.  The additive `.atomic.json`
+file is secondary attribute-level analysis and should not replace complete
+groups in the primary group-intervention experiment.
+
+Run the seed-42 `m=960/512/256/128/0` pilot and its matched continuous controls:
+
+```bash
+python main_factorized.py --config configs/factorized_capacity_sweep.json
+```
+
+## 11. Reporting
 
 Report mean and standard deviation across seeds along four axes:
 

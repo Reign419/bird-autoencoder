@@ -22,6 +22,7 @@ from attribute_data import (
     make_official_indices,
 )
 from factorized_analysis import (
+    build_bird_bboxes,
     build_part_rois,
     evaluate_concepts,
     evaluate_group_interventions,
@@ -415,6 +416,11 @@ def main(config_path):
                     output_shape=img_size,
                     radius=int(config.get("part_roi_radius", 6)),
                 )
+                bird_bboxes = build_bird_bboxes(
+                    cub_root,
+                    intervention_image_ids,
+                    output_shape=img_size,
+                )
                 intervention_table = evaluate_group_interventions(
                     decoder=decoder,
                     images=arrays["validation"][intervention_indices],
@@ -427,6 +433,9 @@ def main(config_path):
                     seed=seed,
                     concept_only=mode == "concept_only",
                     part_rois=part_rois,
+                    bird_bboxes=bird_bboxes,
+                    difference_vmax=float(config.get("difference_map_vmax", 0.1)),
+                    top_fraction=0.01,
                 )
                 intervention_table.to_csv(run_directory / "group_interventions.csv", index=False)
                 result["mean_group_u_global_ssim"] = float(
@@ -524,16 +533,34 @@ def main(config_path):
                 "official_test", arrays["official_test"], test_reconstruction
             )
             if mode in {"concept", "concept_only"}:
+                test_probabilities = test_prediction["concepts"]
                 test_atomic, test_groups = evaluate_concepts(
                     labels["official_test"],
                     weights["official_test"],
-                    test_prediction["concepts"],
+                    test_probabilities,
                     selected_attributes,
                 )
                 test_atomic.to_csv(run_directory / "official_test_concept_metrics.csv", index=False)
                 test_groups.to_csv(run_directory / "official_test_concept_group_metrics.csv", index=False)
                 test_summary["macro_ap"] = float(test_atomic.average_precision.mean())
                 test_summary["macro_f1"] = float(test_atomic.f1.mean())
+                if bool(config.get("save_probe_latents", True)):
+                    test_encoded = encoder.predict(
+                        arrays["official_test"], batch_size=batch_size, verbose=0
+                    )
+                    test_residual = test_encoded.get("residual")
+                    np.savez_compressed(
+                        run_directory / "official_test_probe_latents.npz",
+                        residual=(
+                            np.asarray([]) if test_residual is None else test_residual
+                        ),
+                        concept_probabilities=test_probabilities,
+                        hard_concepts=(test_probabilities >= 0.5).astype(np.float32),
+                        labels=labels["official_test"],
+                        weights=weights["official_test"],
+                        image_indices=splits["official_test"],
+                        attribute_ids=np.asarray(selected_ids),
+                    )
             save_json(test_summary, run_directory / "official_test_result.json")
 
     pd.DataFrame(results).to_csv(output_root / "all_runs.csv", index=False)
