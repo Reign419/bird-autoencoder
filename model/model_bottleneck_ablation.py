@@ -24,7 +24,7 @@ except ImportError:
     )
 
 
-VARIANTS = {"A", "P", "C_prime", "C", "D"}
+VARIANTS = {"A", "B", "P", "C_prime", "C", "D"}
 
 
 @tf.keras.utils.register_keras_serializable(package="bird_autoencoder")
@@ -88,13 +88,18 @@ def build_bottleneck_ablation_autoencoder(
     mixing_trainable=True,
     permutation_seed=42,
 ):
-    """Build A/P/C'/C/D with a shared encoder stem and identical decoder.
+    """Build A/B/P/C'/C/D with a shared encoder stem and decoder trunk.
 
     The common representation has shape ``H x W x spatial_channels``.  Let
     ``N = H * W * spatial_channels``.
 
     A
         Identity spatial bottleneck.
+    B
+        Flatten -> ordered vector -> reshape. This exposes a genuine rank-2
+        vector interface without mixing, compression, or trainable bottleneck
+        parameters. The decoder restores the spatial map with the exact inverse
+        reshape before applying the same convolutional trunk as A.
     P
         Flatten -> fixed random spatial-position permutation -> reshape. Every
         feature value and within-position channel order is preserved exactly,
@@ -148,6 +153,9 @@ def build_bottleneck_ablation_autoencoder(
 
     if variant == "A":
         bottleneck = layers.Activation("linear", name="bottleneck_A_identity")(common_map)
+        effective_dim = full_dim
+    elif variant == "B":
+        bottleneck = layers.Flatten(name="bottleneck_B_ordered_vector")(common_map)
         effective_dim = full_dim
     elif variant == "P":
         x = layers.Flatten(name="flatten_for_fixed_permutation")(common_map)
@@ -212,11 +220,23 @@ def build_bottleneck_ablation_autoencoder(
 
     encoder = Model(encoder_input, bottleneck, name=f"ablation_{variant}_encoder")
 
-    decoder_input = layers.Input(
-        shape=(latent_h, latent_w, spatial_channels),
-        name="decoder_spatial_input",
-    )
-    x = conv_bn_act(decoder_input, schedule[-1], kernel_initializer=None)
+    if variant == "B":
+        decoder_input = layers.Input(
+            shape=(full_dim,),
+            name="decoder_ordered_vector_input",
+        )
+        decoder_features = layers.Reshape(
+            (latent_h, latent_w, spatial_channels),
+            name="restore_B_spatial_order",
+        )(decoder_input)
+    else:
+        decoder_input = layers.Input(
+            shape=(latent_h, latent_w, spatial_channels),
+            name="decoder_spatial_input",
+        )
+        decoder_features = decoder_input
+
+    x = conv_bn_act(decoder_features, schedule[-1], kernel_initializer=None)
     x = residual_block(x, schedule[-1], kernel_initializer=None)
     decoder_filters = list(reversed(schedule[:-1])) + [max(base_channels // 2, 1)]
     for filters in decoder_filters:
