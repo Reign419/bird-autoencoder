@@ -1,10 +1,51 @@
 # CUB factorized concept experiments
 
-This protocol keeps the Phase 1 topology experiments unchanged.  The concept
-study uses `main_factorized.py`, the official CUB train/test split, whole
-attribute groups, certainty-weighted supervision, and matched controls.
+This file describes the code-supported Stage 2 workflow. The current scientific
+target is an Interpretability Workshop study of reconstruction quality, concept
+observability, decoder concept use, and residual side channels.
 
-## 1. Dataset layout
+Stage 1 topology experiments remain available through `main_experiment.py` and
+are not modified by this workflow.
+
+---
+
+## 1. Non-negotiable safeguards
+
+### Official-test lock
+
+All development and pilot configs must contain:
+
+```json
+"evaluate_official_test": false,
+"official_test_release": false
+```
+
+Use:
+
+```bash
+python run_factorized.py --config CONFIG.json
+```
+
+Official-test evaluation is rejected unless:
+
+1. `evaluate_official_test` is explicitly `true`;
+2. `official_test_release` is explicitly `true`;
+3. every experiment name contains `confirmatory`.
+
+The same validation runs inside `main_factorized.main()`, so direct invocation
+cannot silently bypass the release guard.
+
+### Pilot and confirmatory seeds
+
+- pilot training seed: `41`;
+- confirmatory training seeds: `42`, `43`, `44`;
+- split seed is separate from training seed;
+- a replacement seed may be used only for a recorded infrastructure failure,
+  never to replace model collapse or an unfavourable result.
+
+---
+
+## 2. Dataset layout
 
 ```text
 CUB_200_2011/
@@ -19,10 +60,12 @@ CUB_200_2011/
     └── part_locs.txt
 ```
 
-The large image-level attribute file stays on the training server.  The first
-preparation run creates `cache/attribute_labels.npz`; later runs use the cache.
+The first metadata pass creates `cache/attribute_labels.npz`; later runs reuse
+it.
 
-## 2. Environment and static checks
+---
+
+## 3. Environment and checks
 
 ```bash
 python -m venv .venv
@@ -32,7 +75,17 @@ python -m compileall -q .
 python -m unittest discover -s tests -v
 ```
 
-## 3. Validate metadata and make the initial group selection
+The factorized tests include:
+
+- official-test release guard checks;
+- fixed residual-mask parameter invariance;
+- concept/control parameter-budget matching.
+
+Do not start GPU experiments if these tests fail.
+
+---
+
+## 4. Prepare attributes
 
 ```bash
 python prepare_attributes.py \
@@ -51,216 +104,213 @@ outputs/attribute_preparation/
 └── attribute_selection_report.md
 ```
 
-Inspect the report before training.  Selection uses only the training subset
-inside the official training split.  The suggested control-noise value is an
-AWGN information-rate proxy, not an exact mutual-information match.
+The initial selection uses only the train subset inside official train.
 
-## 4. Two-epoch smoke test
+---
 
-Edit these two paths in `configs/factorized_smoke.json`:
+## 5. Smoke test
 
-```json
-"cub_root": "/data/CUB_200_2011",
-"selected_attributes_path": "outputs/attribute_preparation/selected_attributes.json"
-```
-
-Then run:
+Edit paths in `configs/factorized_smoke.json`, then run:
 
 ```bash
-python main_factorized.py --config configs/factorized_smoke.json
+python run_factorized.py --config configs/factorized_smoke.json
 ```
 
-This uses at most 64 images per split and runs one concept model plus one
-continuous control.  Confirm that both runs create `result.json`,
-`history.csv`, `checkpoints/best.keras`, and `validation_latents.npz`.
+This uses at most 64 images per split and never loads official-test images.
 
-## 5. Concept-predictor pilot and predictability filter
+---
 
-Edit the dataset path in `configs/concept_pilot.json`, then run:
+## 6. Standalone concept observability upper bound
+
+Run:
 
 ```bash
-python main_factorized.py --config configs/concept_pilot.json
+python standalone_concept_predictor.py \
+  --config configs/standalone_concept_pilot.json
 ```
 
-Find the pilot run directory containing `concept_metrics.csv`, then freeze the
-predictability-filtered selection:
+The architecture is:
+
+```text
+shared convolutional trunk
+-> GlobalAveragePooling2D
+-> Dense(Dc)
+-> sigmoid
+```
+
+It has no residual path, `SemanticBottleneck`, decoder, or reconstruction loss.
+This is the primary evidence for whether the selected CUB concepts are
+observable at 64×64 under the current trunk.
+
+Expected outputs:
+
+```text
+outputs/standalone_concept_pilot/
+├── result.json
+├── history.csv
+├── model_summary.txt
+├── split_manifest.csv
+├── selected_attribute_definitions.csv
+├── concept_metrics.csv
+└── concept_group_metrics.csv
+```
+
+Freeze attribute groups using selection-validation metrics only. Reported
+standalone upper-bound metrics must later come from a held-out split that did
+not participate in selection.
+
+---
+
+## 7. Freeze predictable groups
 
 ```bash
 python analysis/refine_attribute_selection.py \
   --initial-selection outputs/attribute_preparation/selected_attributes.json \
-  --concept-metrics outputs/concept_pilot/REPLACE_WITH_RUN/concept_metrics.csv \
-  --attribute-definitions outputs/concept_pilot/selected_attribute_definitions.csv \
+  --concept-metrics outputs/standalone_concept_pilot/concept_metrics.csv \
+  --attribute-definitions outputs/standalone_concept_pilot/selected_attribute_definitions.csv \
   --min-group-ap-lift 0.05 \
-  --output outputs/attribute_preparation/selected_attributes_final.json
+  --output outputs/attribute_preparation/selected_attributes_predictable_groups.json
 ```
 
-Do not use official-test metrics for this refinement.
+Do not use official-test, reconstruction, or intervention results to refine the
+subset.
 
-## 6. Full matched experiment
+---
 
-Edit `cub_root` in `configs/factorized_concepts.json`.  Its selection path
-already points to `selected_attributes_final.json`.
+## 8. Fixed-geometry residual capacity pilot
+
+Run:
 
 ```bash
-python main_factorized.py --config configs/factorized_concepts.json
+python run_factorized.py \
+  --config configs/factorized_capacity_pilot.json
 ```
 
-The configuration runs seeds 42, 43, and 44 for:
+The config uses seed `41` and validation only.
 
-- factorized model with clean residual;
-- mild residual corruption;
-- medium residual corruption;
-- rate-proxy-matched continuous `u` control;
-- concept-only reconstruction.
-
-Run the existing structured `8x8x16` and residual-only `8x8x15` models as
-reference baselines.  Do not compare different selected concept dimensions
-without building a new matched `u(Dc)` control for each dimension.
-
-## 7. Residual-to-concept leakage probe
-
-For each factorized concept run:
-
-```bash
-python analysis/concept_probe.py \
-  --train-latents outputs/factorized_concepts/RUN/train_probe_latents.npz \
-  --validation-latents outputs/factorized_concepts/RUN/validation_latents.npz \
-  --attribute-definitions outputs/factorized_concepts/selected_attribute_definitions.csv \
-  --output outputs/factorized_concepts/RUN/concept_probe.csv
-```
-
-`probe_ap_lift` measures how much concept information remains recoverable from
-`m` above the prevalence baseline.
-
-The command above remains the backward-compatible fast linear probe.  For the
-pre-registered two-level real-vs-null diagnostic, use the same output reference
-and add:
-
-```bash
-python analysis/concept_probe.py \
-  --train-latents outputs/factorized_concepts/RUN/train_probe_latents.npz \
-  --validation-latents outputs/factorized_concepts/RUN/validation_latents.npz \
-  --test-latents outputs/factorized_concepts/RUN/official_test_probe_latents.npz \
-  --evaluation-split test \
-  --attribute-definitions outputs/factorized_concepts/selected_attribute_definitions.csv \
-  --output outputs/factorized_concepts/RUN/concept_probe.csv \
-  --probe-types linear,mlp \
-  --null-repeats 20 \
-  --jobs 4
-```
-
-The example uses 20 permutations as a diagnostic pilot. Empirical p-values and
-FDR q-values are coarse at that resolution; increase `--null-repeats` for
-confirmatory inference. Each permutation moves an atomic label together with
-its certainty weight, preserving the observed label/certainty distribution
-while breaking the relationship between `m` and that concept.
-
-The legacy `concept_probe.csv` and `concept_probe_groups.csv` filenames and
-columns are unchanged.  Detailed outputs are additive:
+Residual capacity is implemented as:
 
 ```text
-concept_probe_linear.csv
-concept_probe_linear_null.csv
-concept_probe_mlp.csv
-concept_probe_mlp_null.csv
-concept_probe_comparison.csv
-concept_probe_summary.json
+Conv2D(15) residual head
+-> fixed non-trainable prefix ChannelMask
+-> always-shaped 8×8×15 decoder input
 ```
 
-Interpret linear lift as low-complexity accessibility and MLP lift as nonlinear
-recoverability.  An MLP-only signal is evidence that information exists in `m`,
-but is not by itself proof that the current decoder can easily use it.
+Active channels are 15, 8, 4, and 2, corresponding to 960, 512, 256, and 128
+active scalars. The residual head and decoder parameter counts must be identical
+at every capacity.
 
-After all probes finish, aggregate every axis across seeds:
+### Matched unsupervised control
 
-```bash
-python analysis/aggregate_factorized.py outputs/factorized_concepts
+The current matched control follows the same condition topology as concepts:
+
+```text
+c: Dense(Dc) -> sigmoid -> SemanticBottleneck + concept loss
+u: Dense(Dc) -> sigmoid -> SemanticBottleneck + no concept loss
 ```
 
-## 8. Main diagnostic files
+The old `LayerNorm -> tanh -> Gaussian` control is no longer used for primary
+comparisons. Its information capacity and decoder accessibility were not
+matched to a binary semantic code.
 
-Each concept run contains:
+---
+
+## 9. Structural confound: global concept path
+
+The current concept path applies global average pooling before concept
+prediction. The residual path preserves the `8×8` feature grid. Therefore the
+concept path cannot carry instance-specific spatial location, while the
+residual can.
+
+This is intentional for image-level CUB attributes, but it creates an important
+alternative explanation for low concept effects:
+
+1. accessible residual bypass;
+2. weak conditioning or joint-training competition;
+3. limited concept observability;
+4. structural spatial disadvantage of the concept path.
+
+The current four-way interpretation must be preserved in analysis and
+limitations. A null concept-intervention result does not isolate one mechanism
+by itself.
+
+---
+
+## 10. Concept and residual diagnostics
+
+Each concept run may write:
 
 ```text
 concept_metrics.csv
 concept_group_metrics.csv
 semantic_bottleneck_analysis.csv
 group_interventions.csv
-figures/group_interventions/*.png
 validation_latents.npz
 train_probe_latents.npz
-official_test_probe_latents.npz
-official_test_result.json
+figures/group_interventions/
 ```
 
-Interpret them together:
+Interpret them jointly:
 
-- soft much better than hard: continuous confidence values carry extra detail;
-- ground truth much better than hard: concept prediction is the bottleneck;
-- group shuffle has no effect: decoder is ignoring concepts;
-- large `m -> concept` probe lift: concept leakage remains in the residual;
-- bird bounding-box effects are not segmentation-mask measurements;
-- local ROI effects are landmark-centred approximations; interpret target/non-target
-  enrichment and Top-1% overlap together rather than treating either as strict
-  localization proof;
-- global SSIM can underestimate localized changes, so always inspect pixel
-  change, effective-change subsets, and difference maps.
+- soft much better than hard: discretization may be costly;
+- visible ground truth much better than hard: concept prediction is limiting;
+- concept intervention has little effect: decoder neglect, spatial disadvantage,
+  or residual dominance remains possible;
+- large `m -> concept` probe lift: concept information is recoverable from the
+  residual;
+- recoverable information is not automatically information used by the decoder;
+- bbox and landmark ROI metrics are approximations, not segmentation proof.
 
-## 9. STE fallback
+---
 
-Switch `semantic_method` from `ste` to `gumbel` only if multiple seeds show
-loss oscillation, repeated gradient-clipping/NaN events, probabilities stuck
-near 0.5, or collapsed concept distributions.  Add:
+## 11. Residual-to-concept probes
 
-```json
-"semantic_method": "gumbel",
-"temperature_start": 1.0,
-"temperature_end": 0.2,
-"temperature_anneal_epochs": 50
-```
-
-The implementation uses Binary Concrete/Gumbel-sigmoid for atomic multi-label
-attributes and hard thresholds at test time.  Treat this as a pre-registered
-fallback, not another result chosen after looking at official-test scores.
-
-## 10. Predictable complete groups and capacity sweep
-
-Freeze a complete-group primary subset without changing the historical JSON
-reference pattern:
+Fast linear diagnostic:
 
 ```bash
-python analysis/refine_attribute_selection.py \
-  --initial-selection outputs/attribute_preparation/selected_attributes_final.json \
-  --concept-metrics outputs/concept_pilot/RUN/concept_metrics.csv \
-  --attribute-definitions outputs/attribute_preparation/attribute_definitions.csv \
-  --output outputs/attribute_preparation/selected_attributes_predictable_groups.json \
-  --min-group-ap-lift 0.05 \
-  --min-attribute-ap-lift 0.05 \
-  --min-balanced-accuracy 0.60 \
-  --min-positive-count 25 \
-  --min-negative-count 25 \
-  --min-predictable-fraction 0.60
+python analysis/concept_probe.py \
+  --train-latents outputs/factorized_capacity_pilot/RUN/train_probe_latents.npz \
+  --validation-latents outputs/factorized_capacity_pilot/RUN/validation_latents.npz \
+  --attribute-definitions outputs/factorized_capacity_pilot/selected_attribute_definitions.csv \
+  --output outputs/factorized_capacity_pilot/RUN/concept_probe.csv
 ```
 
-The main JSON contains complete admitted groups.  The additive `.atomic.json`
-file is secondary attribute-level analysis and should not replace complete
-groups in the primary group-intervention experiment.
+For confirmatory real/null inference:
 
-Run the seed-42 `m=960/512/256/128/0` pilot and its matched continuous controls:
+1. choose and freeze linear regularization and all probe hyperparameters on
+   seed-41 pilot latents;
+2. use the same fixed hyperparameters for the real probe and every null;
+3. preserve complete label/certainty rows when permuting supervision;
+4. do not perform a new grid search inside each null replicate;
+5. treat MLP nulls as exploratory unless adequately powered.
 
-```bash
-python main_factorized.py --config configs/factorized_capacity_sweep.json
+---
+
+## 12. Corruption experiments are archived
+
+Mild and medium residual corruption are not part of the primary path before the
+leakage/conditioning mechanism gate. Their previous config is preserved at:
+
+```text
+configs/archive/factorized_corruption_legacy.json
 ```
 
-## 11. Reporting
+Do not run it as part of the primary capacity study.
 
-Report mean and standard deviation across seeds along four axes:
+---
 
-1. reconstruction quality;
-2. concept prediction;
-3. group intervention/use;
-4. bidirectional leakage.
+## 13. Confirmatory release
 
-A successful factorization needs competitive reconstruction, predictable hard
-concepts, non-zero and spatially plausible group interventions, and limited
-leakage in both directions.
+The repository intentionally does not provide an already-released official-test
+config. After the subset, retained capacity points, checkpoint rules, and
+analysis definitions are frozen:
+
+1. create a dedicated confirmatory config;
+2. use pre-registered seeds;
+3. include `confirmatory` in every experiment name;
+4. set both official-test flags to `true`;
+5. run once through `run_factorized.py`;
+6. record the release date and commit in the experiment log.
+
+Any earlier access to official test must be disclosed rather than silently
+relabelled as untouched evaluation.
