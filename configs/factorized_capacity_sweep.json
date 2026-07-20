@@ -1,0 +1,106 @@
+{
+  "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
+  "selected_attributes_path": "outputs/attribute_preparation/selected_attributes_predictable_groups.json",
+  "output_path": "outputs/factorized_capacity_sweep",
+  "img_size": [64, 64],
+  "validation_fraction": 0.15,
+  "split_seed": 42,
+  "training_seeds": [42],
+  "learning_rate": 0.001,
+  "gradient_clipnorm": 1.0,
+  "positive_class_weight_cap": 10.0,
+  "batch_size": 32,
+  "epochs": 100,
+  "early_stopping_patience": 10,
+  "reduce_lr_patience": 3,
+  "monitor": "val_reconstruction_ssim_metric",
+  "monitor_mode": "max",
+  "evaluate_official_test": true,
+  "save_probe_latents": true,
+  "intervention_max_images": 256,
+  "part_roi_radius": 6,
+  "difference_map_vmax": 0.1,
+  "reconstruction_loss": {
+    "pixel": "l1",
+    "pixel_weight": 1.0,
+    "ssim_weight": 0.2,
+    "edge_weight": 0.1
+  },
+  "experiments": [
+    {
+      "name": "factorized_m960",
+      "mode": "concept",
+      "residual_channels": 15,
+      "concept_weight": 1.0,
+      "semantic_method": "ste",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    },
+    {
+      "name": "factorized_m512",
+      "mode": "concept",
+      "residual_channels": 8,
+      "concept_weight": 1.0,
+      "semantic_method": "ste",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    },
+    {
+      "name": "factorized_m256",
+      "mode": "concept",
+      "residual_channels": 4,
+      "concept_weight": 1.0,
+      "semantic_method": "ste",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    },
+    {
+      "name": "factorized_m128",
+      "mode": "concept",
+      "residual_channels": 2,
+      "concept_weight": 1.0,
+      "semantic_method": "ste",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    },
+    {
+      "name": "concept_only_m0",
+      "mode": "concept_only",
+      "residual_channels": 0,
+      "concept_weight": 1.0,
+      "semantic_method": "ste"
+    },
+    {
+      "name": "matched_control_m960",
+      "mode": "control",
+      "residual_channels": 15,
+      "control_noise_std": "auto",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    },
+    {
+      "name": "matched_control_m512",
+      "mode": "control",
+      "residual_channels": 8,
+      "control_noise_std": "auto",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    },
+    {
+      "name": "matched_control_m256",
+      "mode": "control",
+      "residual_channels": 4,
+      "control_noise_std": "auto",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    },
+    {
+      "name": "matched_control_m128",
+      "mode": "control",
+      "residual_channels": 2,
+      "control_noise_std": "auto",
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0
+    }
+  ]
+}

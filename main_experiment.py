@@ -1,49 +1,49 @@
-import os
-import json
-import tensorflow as tf
-import pandas as pd
-import numpy as np
-import random
 import argparse
+import json
+import os
 import platform
+import random
 import subprocess
 import sys
 from datetime import datetime
 
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+
 from data import load_cub_images
+from evaluate import evaluate_per_image
 from losses import (
-    l1_ssim_loss,
-    mse_ssim_loss,
-    l1_ssim_edge_loss,
-    mse_ssim_edge_loss,
+    edge_metric,
     l1_metric,
+    l1_ssim_edge_loss,
+    l1_ssim_loss,
+    make_reconstruction_loss,
     mse_metric,
+    mse_ssim_edge_loss,
+    mse_ssim_loss,
+    psnr_metric,
     ssim_metric,
     ssim_loss_metric,
-    edge_metric,
-    psnr_metric,
-    make_reconstruction_loss,
-    )
+)
+from model.model_registry import build_registered_model
+from perceptual import (
+    make_l1_ssim_edge_perceptual_loss,
+    perceptual_metric,
+)
+from stage1_experiments import (
+    build_experiment_list,
+    build_run_name,
+    normalize_experiment,
+    prepare_experiments,
+)
 from train_utils import get_callbacks
 from visualize import (
-    save_reconstruction_grid,
+    save_difference_grid,
     save_loss_curve,
     save_metric_curves,
-    save_difference_grid
-    )  
-from evaluate import evaluate_per_image
-from perceptual import (
-    perceptual_metric,
-    make_l1_ssim_edge_perceptual_loss,
+    save_reconstruction_grid,
 )
-
-from model.model_cnn import build_cnn_autoencoder
-from model.model_residual import build_residual_autoencoder
-from model.model_residual_lite import build_residual_lite_autoencoder
-from model.model_resnet50 import build_resnet50_autoencoder
-from model.model_spatial_lite import build_spatial_lite_autoencoder
-from model.model_bottleneck_ablation import build_bottleneck_ablation_autoencoder
-from model.model_structured_vector_lite import build_structured_vector_lite_autoencoder
 
 gpus = tf.config.list_physical_devices("GPU")
 
@@ -54,104 +54,6 @@ if gpus:
 else:
     print("No GPU detected. TensorFlow will use CPU.")
 
-def build_experiment_list(base_config):
-    if "experiments" in base_config:
-        experiments = []
-        training_seeds = base_config.get("training_seeds")
-        for idx, exp in enumerate(base_config["experiments"]):
-            merged = dict(exp)
-            merged.setdefault("name", f"experiment_{idx:02d}")
-            merged.setdefault("loss", base_config.get("loss", "l1_ssim_edge"))
-            merged.setdefault("learning_rate", base_config.get("learning_rate", 1e-3))
-            merged.setdefault("batch_size", base_config.get("batch_size", 32))
-            merged.setdefault("epochs", base_config.get("epochs", 60))
-            if training_seeds is None or "training_seed" in merged:
-                experiments.append(merged)
-            else:
-                for training_seed in training_seeds:
-                    seeded = dict(merged)
-                    seeded["training_seed"] = int(training_seed)
-                    experiments.append(seeded)
-        return experiments
-
-    raise ValueError("Please use experiments in config.json.")
-
-def normalize_experiment(exp):
-    model_name = exp["model_name"]
-
-    if model_name == "structured_vector_lite":
-        latent_dim = int(exp["latent_dim"])
-        latent_grid_size = int(exp.get("latent_grid_size", 8))
-        spatial_area = latent_grid_size * latent_grid_size
-        if latent_dim % spatial_area:
-            raise ValueError(
-                f"structured_vector_lite latent_dim={latent_dim} must be "
-                f"divisible by grid area {spatial_area}."
-            )
-        latent_channels = latent_dim // spatial_area
-
-        exp["latent_dim"] = latent_dim
-        exp["latent_channels"] = latent_channels
-        exp["latent_grid_size"] = latent_grid_size
-        exp["latent_shape"] = str(latent_dim)
-        exp["effective_latent_size"] = latent_dim
-        exp["latent_label"] = (
-            f"vector{latent_dim}_from_"
-            f"{latent_grid_size}x{latent_grid_size}x{latent_channels}"
-        )
-        return exp
-
-    if model_name == "bottleneck_ablation":
-        variant = exp["variant"]
-        grid = int(exp.get("latent_grid_size", 8))
-        channels = int(exp.get("spatial_channels", 8))
-        full_dim = grid * grid * channels
-        compressed_dim = exp.get("compressed_dim")
-        if compressed_dim is not None:
-            compressed_dim = int(compressed_dim)
-
-        exp["latent_dim"] = full_dim if variant == "B" else compressed_dim
-        exp["latent_channels"] = None if variant == "B" else channels
-        exp["latent_grid_size"] = grid
-        exp["latent_shape"] = (
-            str(full_dim) if variant == "B" else f"{grid}x{grid}x{channels}"
-        )
-        exp["effective_latent_size"] = (
-            compressed_dim if variant in {"C", "D"} else full_dim
-        )
-        exp["latent_label"] = (
-            f"{variant}_K{exp['effective_latent_size']}"
-        )
-        return exp
-
-    if model_name == "spatial_lite":
-        latent_grid_size = int(exp.get("latent_grid_size", 8))
-        latent_channels = int(exp["latent_channels"])
-
-        latent_shape = f"{latent_grid_size}x{latent_grid_size}x{latent_channels}"
-        effective_latent_size = latent_grid_size * latent_grid_size * latent_channels
-
-        exp["latent_dim"] = None
-        exp["latent_channels"] = latent_channels
-        exp["latent_grid_size"] = latent_grid_size
-        exp["latent_shape"] = latent_shape
-        exp["effective_latent_size"] = effective_latent_size
-        exp["latent_label"] = latent_shape
-
-        return exp
-
-    else:
-        latent_dim = int(exp["latent_dim"])
-        exp["latent_dim"] = latent_dim
-        exp["latent_channels"] = None
-        exp["latent_grid_size"] = int(exp.get("latent_grid_size", 8))
-        exp["latent_shape"] = str(latent_dim)
-        exp["effective_latent_size"] = latent_dim
-        exp["latent_label"] = str(latent_dim)
-
-        return exp
-
-
 def get_model(
     model_name,
     img_shape,
@@ -160,63 +62,14 @@ def get_model(
     latent_grid_size=8,
     experiment=None,
 ):
-    if model_name == "cnn":
-        return build_cnn_autoencoder(
-            img_shape=img_shape,
-            latent_dim=latent_dim
-        )
-    elif model_name == "residual":
-        return build_residual_autoencoder(
-            img_shape=img_shape,
-            latent_dim=latent_dim
-        )
-    elif model_name == "residual_lite":
-        return build_residual_lite_autoencoder(
-            img_shape=img_shape,
-            latent_dim=latent_dim,
-            latent_grid_size=experiment.get("latent_grid_size", 8),
-            base_channels=experiment.get("base_channels", 64),
-            max_channels=experiment.get("max_channels", 256),
-        )
-    elif model_name == "resnet50":
-        return build_resnet50_autoencoder(
-            img_shape=img_shape,
-            latent_dim=latent_dim,
-            weights=None,
-            train_backbone=True,
-            feature_layer="conv3_block4_out"
-        )
-    elif model_name == "spatial_lite":
-        return build_spatial_lite_autoencoder(
-            img_shape=img_shape,
-            latent_channels=latent_channels,
-            latent_grid_size=latent_grid_size,
-            base_channels=experiment.get("base_channels", 64),
-            max_channels=experiment.get("max_channels", 256),
-        )
-    elif model_name == "bottleneck_ablation":
-        return build_bottleneck_ablation_autoencoder(
-            img_shape=img_shape,
-            variant=experiment["variant"],
-            spatial_channels=experiment.get("spatial_channels", 8),
-            compressed_dim=experiment.get("compressed_dim"),
-            latent_grid_size=latent_grid_size,
-            base_channels=experiment.get("base_channels", 64),
-            max_channels=experiment.get("max_channels", 256),
-            mixing_initializer=experiment.get("mixing_initializer", "orthogonal"),
-            mixing_trainable=experiment.get("mixing_trainable", True),
-            permutation_seed=experiment.get("permutation_seed", 42),
-        )
-    elif model_name == "structured_vector_lite":
-        return build_structured_vector_lite_autoencoder(
-            img_shape=img_shape,
-            latent_dim=latent_dim,
-            latent_grid_size=latent_grid_size,
-            base_channels=experiment.get("base_channels", 64),
-            max_channels=experiment.get("max_channels", 256),
-        )
-    else:
-        raise ValueError(f"Unknown model_name: {model_name}")
+    return build_registered_model(
+        model_name,
+        img_shape=img_shape,
+        latent_dim=latent_dim,
+        latent_channels=latent_channels,
+        latent_grid_size=latent_grid_size,
+        experiment=experiment,
+    )
 
 def get_loss(loss_name, perceptual_weight=0.0):
     if isinstance(loss_name, dict):
@@ -346,10 +199,7 @@ def main(config_path="config.json"):
 
     results = []
 
-    experiments = [
-        normalize_experiment(exp)
-        for exp in build_experiment_list(base_config)
-    ]
+    experiments = prepare_experiments(base_config)
 
     for exp in experiments:
         # Reset before every build so paired variants use the same training seed.
@@ -394,7 +244,6 @@ def main(config_path="config.json"):
             experiment=exp,
         )
 
-        latent_label = exp["latent_label"]  # 例如 "8x8x4"
         if isinstance(loss_name, dict):
             loss_label = loss_fn.name
         else:
@@ -402,10 +251,11 @@ def main(config_path="config.json"):
         if loss_name == "l1_ssim_edge_perceptual":
             pw_label = str(perceptual_weight).replace(".", "p")
             loss_label = f"{loss_name}_pw{pw_label}"
-        experiment_name = exp.get("name", model_name).replace(" ", "_")
-        run_name = (
-            f"{experiment_name}_latent_{latent_label.replace('x', '_')}_"
-            f"{loss_label}_seed{training_seed}_{timestamp}"
+        run_name = build_run_name(
+            exp,
+            loss_label=loss_label,
+            training_seed=training_seed,
+            timestamp=timestamp,
         )
         run_output_path = os.path.join(output_path, run_name)
         os.makedirs(run_output_path, exist_ok=True)

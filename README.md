@@ -50,6 +50,7 @@ official-split pipeline is defined.
 ```text
 bird-autoencoder/
 ├── main_experiment.py
+├── stage1_experiments.py
 ├── data.py
 ├── losses.py
 ├── train_utils.py
@@ -58,6 +59,8 @@ bird-autoencoder/
 ├── aggregate_results.py
 ├── model/
 │   ├── model_common.py
+│   ├── model_registry.py
+│   ├── model_topology_common.py
 │   ├── model_residual_lite.py
 │   ├── model_spatial_lite.py
 │   ├── model_structured_vector_lite.py
@@ -67,6 +70,7 @@ bird-autoencoder/
 │   ├── structured_comparison.json
 │   └── loss_ablation.json
 └── analysis/
+    ├── validate_stage1_config.py
     ├── aggregate_seeds.py
     └── make_paper_tables.py
 ```
@@ -85,6 +89,13 @@ pip install -r requirements.txt
 Copy a config and replace its dataset/output paths. The dataset path must point
 to the CUB `images/` directory.
 
+Validate expansion, latent accounting, and duplicate name/seed pairs before
+requesting a GPU. This command does not import TensorFlow:
+
+```bash
+python analysis/validate_stage1_config.py configs/topology_ablation.json
+```
+
 ## Run controlled experiments
 
 ```bash
@@ -98,6 +109,8 @@ python main_experiment.py --config configs/loss_ablation.json
 listed experiment across multiple initialization/training seeds. Every run
 saves its config, exact split manifest, history, provenance, best checkpoint,
 model summaries, per-image metrics, curves, and fixed reconstruction grids.
+The historical run-directory pattern, result fields, filenames, and figure
+paths are preserved by the Stage 1 refactor.
 
 Aggregate completed runs with:
 

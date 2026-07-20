@@ -19,6 +19,7 @@
   "save_probe_latents": true,
   "intervention_max_images": 256,
   "part_roi_radius": 6,
+  "difference_map_vmax": 0.1,
   "reconstruction_loss": {
     "pixel": "l1",
     "pixel_weight": 1.0,

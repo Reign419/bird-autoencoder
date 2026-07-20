@@ -8,23 +8,11 @@ the tensor interface; they do not learn a global spatial mixing.
 from tensorflow.keras import Model, layers
 
 try:
-    from .model_common import (
-        conv_bn_act,
-        make_channel_schedule,
-        residual_block,
-        residual_down_block,
-        residual_up_block,
-        resolve_latent_grid,
-    )
+    from .model_common import resolve_latent_grid
+    from .model_topology_common import build_spatial_encoder, decode_spatial_features
 except ImportError:
-    from model_common import (
-        conv_bn_act,
-        make_channel_schedule,
-        residual_block,
-        residual_down_block,
-        residual_up_block,
-        resolve_latent_grid,
-    )
+    from model_common import resolve_latent_grid
+    from model_topology_common import build_spatial_encoder, decode_spatial_features
 
 
 def build_structured_vector_lite_autoencoder(
@@ -45,7 +33,7 @@ def build_structured_vector_lite_autoencoder(
     computationally equivalent to the matching spatial-lite model apart from
     exposing its latent as shape ``(batch, latent_dim)``.
     """
-    latent_h, latent_w, n_down = resolve_latent_grid(
+    latent_h, latent_w, _ = resolve_latent_grid(
         img_shape,
         latent_grid_size,
     )
@@ -60,24 +48,21 @@ def build_structured_vector_lite_autoencoder(
     if latent_channels < 1:
         raise ValueError("latent_dim is too small for the requested latent grid.")
 
-    schedule = make_channel_schedule(n_down, base_channels, max_channels)
-
-    # Encoder: identical spatial compression to spatial_lite, followed only by
-    # a parameter-free flatten so the public latent interface is one vector.
-    encoder_input = layers.Input(shape=img_shape, name="image")
-    x = conv_bn_act(encoder_input, base_channels, kernel_initializer=None)
-    for filters in schedule:
-        x = residual_down_block(x, filters, kernel_initializer=None)
-
-    latent_map = layers.Conv2D(
-        latent_channels,
-        1,
-        padding="same",
-        name="structured_latent_map",
-    )(x)
-    latent_vector = layers.Flatten(name="structured_latent_vector")(latent_map)
+    spatial_encoder, _, schedule = build_spatial_encoder(
+        img_shape=img_shape,
+        latent_channels=latent_channels,
+        latent_grid_size=latent_grid_size,
+        base_channels=base_channels,
+        max_channels=max_channels,
+        latent_layer_name="structured_latent_map",
+        encoder_name=f"structured_spatial_encoder_{latent_dim}",
+        input_name="image",
+    )
+    latent_vector = layers.Flatten(name="structured_latent_vector")(
+        spatial_encoder.output
+    )
     encoder = Model(
-        encoder_input,
+        spatial_encoder.input,
         latent_vector,
         name=f"structured_vector_encoder_{latent_dim}",
     )
@@ -85,24 +70,17 @@ def build_structured_vector_lite_autoencoder(
     # Decoder: reshape restores the known grid ordering. There is deliberately
     # no Dense layer here, so no global mixing is introduced.
     decoder_input = layers.Input(shape=(latent_dim,), name="latent_vector_input")
-    x = layers.Reshape(
+    restored_map = layers.Reshape(
         (latent_h, latent_w, latent_channels),
         name="restore_structured_latent_map",
     )(decoder_input)
-    x = conv_bn_act(x, schedule[-1], kernel_initializer=None)
-    x = residual_block(x, schedule[-1], kernel_initializer=None)
-
-    decoder_filters = list(reversed(schedule[:-1])) + [max(base_channels // 2, 1)]
-    for filters in decoder_filters:
-        x = residual_up_block(x, filters, kernel_initializer=None)
-
-    decoder_output = layers.Conv2D(
-        img_shape[-1],
-        3,
-        padding="same",
-        activation="sigmoid",
-        name="reconstruction",
-    )(x)
+    decoder_output = decode_spatial_features(
+        restored_map,
+        img_shape=img_shape,
+        schedule=schedule,
+        base_channels=base_channels,
+        output_name="reconstruction",
+    )
     decoder = Model(
         decoder_input,
         decoder_output,
@@ -110,8 +88,8 @@ def build_structured_vector_lite_autoencoder(
     )
 
     autoencoder = Model(
-        encoder_input,
-        decoder(encoder(encoder_input)),
+        encoder.input,
+        decoder(encoder(encoder.input)),
         name=f"structured_vector_lite_{latent_dim}",
     )
     autoencoder.structured_vector_metadata = {
