@@ -76,6 +76,45 @@ class SemanticBottleneck(layers.Layer):
 
 
 @tf.keras.utils.register_keras_serializable(package="bird_autoencoder")
+class ChannelMask(layers.Layer):
+    """Apply a fixed non-trainable prefix mask to a fixed-width residual map.
+
+    The residual head and decoder always use ``max_channels`` channels. Capacity
+    changes only through this constant 0/1 mask, so trainable parameter counts
+    remain identical across the residual-capacity sweep.
+    """
+
+    def __init__(self, active_channels, max_channels=15, **kwargs):
+        super().__init__(trainable=False, **kwargs)
+        self.active_channels = int(active_channels)
+        self.max_channels = int(max_channels)
+        if self.max_channels <= 0:
+            raise ValueError("max_channels must be positive")
+        if not 0 <= self.active_channels <= self.max_channels:
+            raise ValueError("active_channels must be between 0 and max_channels")
+
+    def build(self, input_shape):
+        if int(input_shape[-1]) != self.max_channels:
+            raise ValueError(
+                f"ChannelMask expected {self.max_channels} channels, got {input_shape[-1]}"
+            )
+        mask = [1.0] * self.active_channels + [0.0] * (
+            self.max_channels - self.active_channels
+        )
+        self.mask = tf.constant(mask, dtype=self.compute_dtype)[None, None, None, :]
+
+    def call(self, inputs):
+        return inputs * tf.cast(self.mask, inputs.dtype)
+
+    def get_config(self):
+        return {
+            **super().get_config(),
+            "active_channels": self.active_channels,
+            "max_channels": self.max_channels,
+        }
+
+
+@tf.keras.utils.register_keras_serializable(package="bird_autoencoder")
 class ResidualCorruption(layers.Layer):
     """Training-only channel dropout and scale-relative Gaussian noise."""
 
@@ -111,7 +150,7 @@ class ResidualCorruption(layers.Layer):
 
 @tf.keras.utils.register_keras_serializable(package="bird_autoencoder")
 class ContinuousControlBottleneck(layers.Layer):
-    """Bounded continuous u with training-only AWGN for the capacity control."""
+    """Legacy bounded continuous control retained for checkpoint loading only."""
 
     def __init__(self, noise_std=0.0, **kwargs):
         super().__init__(**kwargs)
@@ -201,8 +240,9 @@ def _build_decoder(
 
 def build_factorized_lite_autoencoder(
     img_shape=(64, 64, 3),
-    concept_dim=64,
+    concept_dim=224,
     residual_channels=15,
+    max_residual_channels=15,
     condition_channels=4,
     latent_grid_size=8,
     base_channels=64,
@@ -212,21 +252,28 @@ def build_factorized_lite_autoencoder(
     semantic_temperature=1.0,
     residual_dropout=0.1,
     residual_noise_std=0.05,
-    control_noise_std=0.5,
+    control_noise_std=0.0,
 ):
-    """Build concept, unsupervised-control, or concept-only factorized models.
+    """Build concept, matched unsupervised-control, or concept-only models.
 
-    Returns ``(model, encoder, decoder)``.  Concept models emit a dictionary
-    with ``reconstruction`` and ``concepts``; controls emit reconstruction only.
-    The standalone decoder always consumes clean residuals and semantic/control
-    vectors, which makes intervention analysis explicit and deterministic.
+    ``residual_channels`` now means the number of active channels in a fixed
+    ``max_residual_channels`` residual head. Concept and control conditions both
+    follow ``Dense -> sigmoid -> SemanticBottleneck``; the control receives no
+    concept supervision. ``control_noise_std`` is accepted only for backward
+    config compatibility and is intentionally ignored by the matched control.
     """
     if mode not in {"concept", "control", "concept_only"}:
         raise ValueError("mode must be concept, control, or concept_only")
     if concept_dim <= 0:
         raise ValueError("concept_dim must be positive")
-    if mode == "concept_only":
-        residual_channels = 0
+    if max_residual_channels <= 0:
+        raise ValueError("max_residual_channels must be positive")
+    if not 0 <= residual_channels <= max_residual_channels:
+        raise ValueError("residual_channels must be between 0 and max_residual_channels")
+
+    active_residual_channels = int(residual_channels)
+    has_residual = mode != "concept_only"
+    decoder_residual_channels = max_residual_channels if has_residual else 0
 
     latent_h, latent_w, n_down = resolve_latent_grid(img_shape, latent_grid_size)
     schedule = make_channel_schedule(n_down, base_channels, max_channels)
@@ -239,7 +286,7 @@ def build_factorized_lite_autoencoder(
     decoder = _build_decoder(
         latent_h,
         latent_w,
-        residual_channels,
+        decoder_residual_channels,
         concept_dim,
         condition_channels,
         schedule,
@@ -247,13 +294,18 @@ def build_factorized_lite_autoencoder(
         name=f"{mode}_decoder",
     )
 
-    if residual_channels > 0:
-        residual_clean = layers.Conv2D(
-            residual_channels,
+    if has_residual:
+        residual_full = layers.Conv2D(
+            max_residual_channels,
             1,
             padding="same",
             name="residual_latent",
         )(features)
+        residual_clean = ChannelMask(
+            active_channels=active_residual_channels,
+            max_channels=max_residual_channels,
+            name="residual_channel_mask",
+        )(residual_full)
         residual_train = ResidualCorruption(
             residual_dropout,
             residual_noise_std,
@@ -263,40 +315,38 @@ def build_factorized_lite_autoencoder(
     if mode in {"concept", "concept_only"}:
         logits = layers.Dense(concept_dim, name="concept_logits")(pooled)
         probabilities = layers.Activation("sigmoid", name="concepts")(logits)
-        semantic = SemanticBottleneck(
+        condition = SemanticBottleneck(
             method=semantic_method,
             temperature=semantic_temperature,
             name="semantic_bottleneck",
         )(probabilities)
-        reconstruction = decoder(
-            [residual_train, semantic] if residual_channels > 0 else semantic
-        )
-        # A nested decoder call otherwise exposes the nested Model name as the
-        # output name in some Keras versions (for example
-        # ``concept_decoder_ssim_metric``).  Give the outer multi-output model a
-        # stable public output name used by configs and callbacks.
-        reconstruction = layers.Activation(
-            "linear", name="reconstruction"
-        )(reconstruction)
+        reconstruction = decoder([residual_train, condition] if has_residual else condition)
+        reconstruction = layers.Activation("linear", name="reconstruction")(reconstruction)
         outputs = {"reconstruction": reconstruction, "concepts": probabilities}
-        encoder_outputs = {"concepts": probabilities, "semantic": semantic}
-        if residual_channels > 0:
+        encoder_outputs = {"concepts": probabilities, "semantic": condition}
+        if has_residual:
             encoder_outputs["residual"] = residual_clean
         encoder = Model(image_input, encoder_outputs, name=f"{mode}_encoder")
     else:
-        control_raw = layers.Dense(concept_dim, name="control_raw")(pooled)
-        control = ContinuousControlBottleneck(
-            noise_std=control_noise_std,
+        control_logits = layers.Dense(concept_dim, name="control_logits")(pooled)
+        control_probabilities = layers.Activation("sigmoid", name="control_probabilities")(
+            control_logits
+        )
+        control = SemanticBottleneck(
+            method=semantic_method,
+            temperature=semantic_temperature,
             name="control_bottleneck",
-        )(control_raw)
+        )(control_probabilities)
         reconstruction = decoder([residual_train, control])
-        reconstruction = layers.Activation(
-            "linear", name="reconstruction"
-        )(reconstruction)
+        reconstruction = layers.Activation("linear", name="reconstruction")(reconstruction)
         outputs = reconstruction
         encoder = Model(
             image_input,
-            {"control": control, "residual": residual_clean},
+            {
+                "control": control,
+                "control_probabilities": control_probabilities,
+                "residual": residual_clean,
+            },
             name="control_encoder",
         )
 
