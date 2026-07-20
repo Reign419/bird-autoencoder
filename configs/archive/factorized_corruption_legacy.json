@@ -1,0 +1,31 @@
+{
+  "archived": true,
+  "archive_reason": "Residual corruption was removed from the primary path until leakage and conditioning diagnostics are complete.",
+  "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
+  "selected_attributes_path": "outputs/attribute_preparation/selected_attributes_final.json",
+  "output_path": "outputs/archive/factorized_corruption_legacy",
+  "img_size": [64, 64],
+  "validation_fraction": 0.15,
+  "split_seed": 42,
+  "training_seeds": [42, 43, 44],
+  "evaluate_official_test": false,
+  "official_test_release": false,
+  "experiments": [
+    {
+      "name": "archived_factorized_mild_corruption",
+      "mode": "concept",
+      "concept_weight": 1.0,
+      "semantic_method": "ste",
+      "residual_dropout": 0.1,
+      "residual_noise_std": 0.05
+    },
+    {
+      "name": "archived_factorized_medium_corruption",
+      "mode": "concept",
+      "concept_weight": 1.0,
+      "semantic_method": "ste",
+      "residual_dropout": 0.2,
+      "residual_noise_std": 0.1
+    }
+  ]
+}
