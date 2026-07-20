@@ -27,6 +27,13 @@
       "spatial_channels": 8
     },
     {
+      "name": "B_ordered_vector_interface",
+      "model_name": "bottleneck_ablation",
+      "variant": "B",
+      "latent_grid_size": 8,
+      "spatial_channels": 8
+    },
+    {
       "name": "P_fixed_permutation",
       "model_name": "bottleneck_ablation",
       "variant": "P",

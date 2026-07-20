@@ -1,0 +1,37 @@
+{
+  "dataset_path": "/cephfs/users/qin/projects/datasets/CUB_200_2011/images",
+  "output_path": "/cephfs/users/qin/projects/outputs/ordered_vector_equivalence",
+  "img_size": [64, 64],
+  "test_size": 0.2,
+  "split_seed": 42,
+  "training_seeds": [42, 43, 44],
+  "learning_rate": 0.001,
+  "batch_size": 32,
+  "epochs": 100,
+  "loss": {
+    "pixel": "l1",
+    "pixel_weight": 1.0,
+    "ssim_weight": 0.2,
+    "edge_weight": 0.1
+  },
+  "monitor": "val_ssim_metric",
+  "monitor_mode": "max",
+  "early_stopping_patience": 10,
+  "summary_name": "all_runs.csv",
+  "experiments": [
+    {
+      "name": "A_spatial_identity",
+      "model_name": "bottleneck_ablation",
+      "variant": "A",
+      "latent_grid_size": 8,
+      "spatial_channels": 8
+    },
+    {
+      "name": "B_ordered_vector_interface",
+      "model_name": "bottleneck_ablation",
+      "variant": "B",
+      "latent_grid_size": 8,
+      "spatial_channels": 8
+    }
+  ]
+}

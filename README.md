@@ -31,8 +31,14 @@ bounding-box crops, and does not add encoder-decoder skip connections.
 - `residual_lite`: legacy globally mixed dense-vector baseline.
 - `spatial_lite`: spatial latent reference.
 - `structured_vector_lite`: rank-2 vector interface with fixed spatial order.
-- `bottleneck_ablation`: identity, fixed permutation, fixed/trainable global
-  mixing, global compression, and spatial channel compression controls.
+- `bottleneck_ablation`: spatial identity (A), ordered vector interface (B),
+  fixed permutation, fixed/trainable global mixing, global compression, and
+  spatial channel compression controls.
+
+In variant B, the encoder exposes a true `[batch, 512]` vector and the decoder
+first applies the parameter-free inverse reshape to `8x8x8`. It has the same
+trainable parameter count and convolutional decoder trunk as A; no values are
+mixed or compressed between flatten and reshape.
 
 The next research phase will add a factorized single-vector representation
 `z=[c;m]`, with supervised concepts `c` and a structured reconstruction
@@ -83,6 +89,7 @@ to the CUB `images/` directory.
 
 ```bash
 python main_experiment.py --config configs/topology_ablation.json
+python main_experiment.py --config configs/ordered_vector_equivalence.json
 python main_experiment.py --config configs/structured_comparison.json
 python main_experiment.py --config configs/loss_ablation.json
 ```

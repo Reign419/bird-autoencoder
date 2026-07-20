@@ -110,10 +110,12 @@ def normalize_experiment(exp):
         if compressed_dim is not None:
             compressed_dim = int(compressed_dim)
 
-        exp["latent_dim"] = compressed_dim
-        exp["latent_channels"] = channels
+        exp["latent_dim"] = full_dim if variant == "B" else compressed_dim
+        exp["latent_channels"] = None if variant == "B" else channels
         exp["latent_grid_size"] = grid
-        exp["latent_shape"] = f"{grid}x{grid}x{channels}"
+        exp["latent_shape"] = (
+            str(full_dim) if variant == "B" else f"{grid}x{grid}x{channels}"
+        )
         exp["effective_latent_size"] = (
             compressed_dim if variant in {"C", "D"} else full_dim
         )
