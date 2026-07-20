@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from run_factorized import validate_official_test_release
 
@@ -50,7 +52,7 @@ try:
     import tensorflow as tf
 
     from model.model_factorized_lite import build_factorized_lite_autoencoder
-except ImportError:  # pragma: no cover - exercised on CPU-only lightweight CI
+except ImportError:  # pragma: no cover - exercised on lightweight CI
     tf = None
     build_factorized_lite_autoencoder = None
 
@@ -89,6 +91,16 @@ class FactorizedCapacityInvariantTest(unittest.TestCase):
         _, control_encoder, control_decoder = self._build("control", 15)
         self.assertEqual(concept_encoder.count_params(), control_encoder.count_params())
         self.assertEqual(concept_decoder.count_params(), control_decoder.count_params())
+
+    def test_channel_mask_survives_keras_round_trip(self):
+        model, _, _ = self._build("concept", 4)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "masked_model.keras"
+            model.save(path)
+            loaded = tf.keras.models.load_model(path)
+        mask = loaded.get_layer("residual_channel_mask")
+        self.assertEqual(mask.active_channels, 4)
+        self.assertEqual(mask.max_channels, 15)
 
 
 if __name__ == "__main__":
