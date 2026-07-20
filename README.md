@@ -1,80 +1,132 @@
 # Bird Autoencoder
 
-Controlled autoencoder experiments on **CUB-200-2011** for studying how latent
-interface design, spatial correspondence, concept supervision, and residual
-information affect image reconstruction and interpretability.
+Controlled experiments on **CUB-200-2011** for studying latent topology,
+decoder accessibility, concept supervision, residual side channels, and
+concept-conditioned image reconstruction.
 
-The current repository contains two experiment tracks:
+The repository contains two experiment tracks:
 
-1. **Stage 1: latent topology / decoder accessibility**
-   - Run through `main_experiment.py`.
-   - Studies whether a single-vector interface is harmful by itself.
-   - Includes spatial, ordered-vector, fixed-permutation, global-mixing,
-     global-compression, and spatial-channel-compression controls.
+1. **Stage 1 — latent topology and reconstruction**
+   - official entry: `main_experiment.py`;
+   - compares spatial, ordered-vector, fixed-permutation, global-mixing,
+     global-compression, and spatial-channel-compression bottlenecks;
+   - current controlled conclusion:
 
-2. **Stage 2: factorized concept/residual reconstruction**
-   - Run through `main_factorized.py`.
-   - Uses the official CUB train/test split, CUB attributes, certainty-weighted
-     concept supervision, matched continuous controls, semantic bottleneck
-     diagnostics, group interventions, optional part-landmark ROIs, and
-     residual-to-concept probes.
+     ```text
+     unstructured global vector < structured vector ≈ spatial map
+     ```
 
-The current evidence does **not** support the simple claim that vectors are
-inherently worse than spatial tensors. A parameter-free
-`8x8xC -> Flatten -> [B, K] -> Reshape -> 8x8xC` interface preserves ordered
-spatial correspondence. The working Stage 1 conclusion is:
+2. **Stage 2 — factorized concept/residual reconstruction**
+   - safety-checked entry: `run_factorized.py`;
+   - internal training implementation: `main_factorized.py`;
+   - uses official CUB metadata, certainty-weighted concepts, a fixed-width
+     structured residual, matched unsupervised controls, concept interventions,
+     optional part ROIs, and residual-to-concept probes.
 
-```text
-unstructured global vector < structured vector ≈ spatial map
+The project currently uses **64×64 full images**, no bounding-box crop, and no
+encoder-decoder skip connections.
+
+---
+
+## Critical safety rule: official test is locked
+
+All pilot and development configs must contain:
+
+```json
+"evaluate_official_test": false,
+"official_test_release": false
 ```
 
-The project uses **64x64 full images** as a controlled setting. It does not use
-bounding-box crops and does not add encoder-decoder skip connections.
+Run Stage 2 through:
+
+```bash
+python run_factorized.py --config CONFIG.json
+```
+
+Official-test evaluation is allowed only when both flags are explicitly true
+**and every experiment name contains `confirmatory`**. The same guard also runs
+inside `main_factorized.main()`, so calling the internal runner directly does
+not bypass the lock.
+
+Never use official-test results for concept selection, capacity selection,
+checkpoint-rule selection, or intervention-definition selection.
 
 ---
 
 ## Current implementation status
 
-### Implemented
+### Stage 1 implemented
 
-- Stage 1 config-driven experiment runner: `main_experiment.py`.
-- Stage 1 topology primitives and model registry under `model/`.
-- Deprecated wrappers: `main.py` and `main_bottleneck_ablation.py` forward to the
-  unified Stage 1 runner and should not be used as new entry points.
-- CUB attribute preparation and group selection: `prepare_attributes.py`.
-- Stage 2 factorized runner: `main_factorized.py`.
-- Stage 2 modes currently supported by code:
-  - `concept`: reconstruction plus supervised concept head, decoder receives
-    `[residual, concepts]`;
-  - `control`: matched continuous non-semantic control `u` with residual;
-  - `concept_only`: decoder receives only the concept representation.
-- Semantic bottleneck diagnostics:
-  - hard predicted concepts;
-  - soft concept probabilities;
-  - ground-truth visible concepts.
-- Group-level concept interventions and local change summaries.
-- Optional CUB bird bounding boxes and part-landmark ROIs for local intervention
-  analysis.
-- Residual-to-concept leakage probes with backward-compatible CSV outputs and
-  optional real-vs-null linear/MLP diagnostics.
-- Factorized result aggregation through `analysis/aggregate_factorized.py`.
+- config-driven runner: `main_experiment.py`;
+- deterministic pilot split with separate split/training seeds;
+- per-run config, provenance, split manifest, model summaries, checkpoint,
+  per-image metrics, curves, reconstruction grids, and difference maps;
+- A/B ordered-vector equivalence, position permutation, orthogonal/global
+  mixing, and compression controls;
+- seed aggregation and paper-table utilities.
 
-### Not yet implemented in code
+### Stage 2 implemented
 
-The latest research protocol discusses a stricter Workshop-oriented capacity
-sweep, but the repository code does **not** yet implement all of it. In
-particular, the current code does not yet provide:
+- CUB official train/test parsing and train-internal validation split;
+- certainty-weighted multi-label attribute supervision;
+- whole-group attribute preparation and predictability refinement;
+- standalone decoder-free concept observability predictor:
+  `standalone_concept_predictor.py`;
+- three current factorized modes:
+  - `concept`: supervised concepts plus residual;
+  - `control`: unsupervised matched binary condition `u` plus residual;
+  - `concept_only`: supervised concepts without residual;
+- fixed residual-head geometry:
+  - encoder always produces `8×8×15` residual channels;
+  - a non-trainable prefix `ChannelMask` activates 15/8/4/2 channels;
+  - decoder always receives `8×8×15`;
+  - encoder and decoder trainable parameter counts are invariant across the
+    capacity sweep;
+- matched `u` path:
 
-- residual-only `z=m` mode inside `main_factorized.py`;
-- fixed `8x8x15` residual-head masking for residual-capacity sweeps;
-- frozen-trunk concept observability probes;
-- standalone semantic intervention evaluator;
-- donor-swap semantic success metrics;
-- frozen probe-hyperparameter selection for confirmatory null inference.
+  ```text
+  c: Dense(Dc) -> sigmoid -> SemanticBottleneck + concept loss
+  u: Dense(Dc) -> sigmoid -> SemanticBottleneck + no concept loss
+  ```
 
-Until those pieces are implemented, the code should be treated as the current
-Stage 1 pipeline plus the first Stage 2 factorized diagnostic pipeline, not the
-full final Workshop protocol.
+- hard/soft/visible-ground-truth concept diagnostics;
+- group interventions, bird bounding-box summaries, and landmark-centred ROIs;
+- linear/MLP residual-to-concept probes with backward-compatible outputs;
+- Stage 2 result aggregation.
+
+### Still pending for the full Workshop protocol
+
+- residual-only `z=m` mode in the unified Stage 2 runner;
+- frozen-shared-trunk concept readout probe;
+- independent semantic intervention evaluator;
+- valid donor-swap semantic-success metrics;
+- frozen probe hyperparameters for confirmatory real/null inference;
+- final confirmatory capacity config and one-shot official-test release.
+
+---
+
+## Important architectural limitation
+
+The current concept path is image-level:
+
+```text
+shared spatial features
+-> GlobalAveragePooling2D
+-> Dense(Dc)
+-> sigmoid / binary bottleneck
+-> Dense back to an 8×8 condition map
+```
+
+The residual path preserves the full `8×8` feature grid through a `1×1`
+convolution. Therefore, the concept path cannot encode instance-specific spatial
+location before the bottleneck, while the residual can. This is intentional for
+image-level CUB attributes, but it is also a structural confound:
+
+- low concept use may reflect residual bypass;
+- low concept use may reflect weak conditioning or training competition;
+- low concept use may also reflect the concept path's loss of spatial detail.
+
+The current work must not treat these explanations as interchangeable.
 
 ---
 
@@ -82,24 +134,19 @@ full final Workshop protocol.
 
 ```text
 bird-autoencoder/
-├── main_experiment.py              # Stage 1 official entry point
-├── main_factorized.py              # Stage 2 factorized concept/residual entry point
-├── prepare_attributes.py           # CUB attribute validation and initial group selection
-├── ATTRIBUTE_EXPERIMENTS.md        # Current Stage 2 execution notes
-├── data.py                         # Stage 1 image loading and deterministic pilot split
-├── attribute_data.py               # CUB official split and attribute cache utilities
-├── losses.py                       # Reconstruction and concept losses / metrics
-├── train_utils.py                  # Checkpoints, LR scheduling, early stopping
-├── visualize.py                    # Reconstruction and difference grids
-├── evaluate.py                     # Per-image reconstruction metrics
-├── aggregate_results.py            # Stage 1 aggregation
-├── factorized_analysis.py          # Stage 2 concept/intervention/local metrics
+├── main_experiment.py
+├── run_factorized.py
+├── main_factorized.py
+├── standalone_concept_predictor.py
+├── prepare_attributes.py
+├── ATTRIBUTE_EXPERIMENTS.md
+├── attribute_data.py
+├── factorized_analysis.py
+├── losses.py
+├── train_utils.py
 ├── model/
 │   ├── model_registry.py
 │   ├── model_topology_common.py
-│   ├── model_residual_lite.py
-│   ├── model_spatial_lite.py
-│   ├── model_structured_vector_lite.py
 │   ├── model_bottleneck_ablation.py
 │   └── model_factorized_lite.py
 ├── configs/
@@ -108,37 +155,49 @@ bird-autoencoder/
 │   ├── structured_comparison.json
 │   ├── loss_ablation.json
 │   ├── factorized_smoke.json
-│   ├── concept_pilot.json
+│   ├── standalone_concept_pilot.json
+│   ├── factorized_capacity_pilot.json
 │   └── factorized_concepts.json
 ├── analysis/
 │   ├── validate_stage1_config.py
-│   ├── aggregate_seeds.py
-│   ├── make_paper_tables.py
 │   ├── refine_attribute_selection.py
 │   ├── concept_probe.py
-│   └── aggregate_factorized.py
+│   ├── aggregate_factorized.py
+│   └── make_paper_tables.py
 └── tests/
 ```
 
 ---
 
-## Dataset layout
+## Setup
 
-### Stage 1 topology experiments
-
-Stage 1 configs expect `dataset_path` to point to the CUB image directory:
-
-```text
-CUB_200_2011/
-└── images/
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m compileall -q .
+python -m unittest discover -s tests -v
 ```
 
-Stage 1 uses a deterministic 80/20 pilot split. These results should not be
-mixed with official-split Stage 2 results.
+The pinned environment currently uses TensorFlow 2.21 / Keras 3.15. See
+`requirements.txt` for exact versions.
 
-### Stage 2 concept experiments
+---
 
-Stage 2 expects the full CUB metadata layout:
+## Dataset layout
+
+### Stage 1
+
+Stage 1 configs point `dataset_path` to:
+
+```text
+CUB_200_2011/images/
+```
+
+Stage 1 uses a deterministic 80/20 pilot split. Do not combine those statistics
+with official-split Stage 2 results.
+
+### Stage 2
 
 ```text
 CUB_200_2011/
@@ -153,41 +212,20 @@ CUB_200_2011/
     └── part_locs.txt
 ```
 
-The large image-level attribute file can stay on the training server. The first
-preparation run creates an attribute cache; later runs reuse it.
+The first attribute preparation run creates a compact cache under the dataset
+root unless another cache path is configured.
 
 ---
 
-## Setup
+## Stage 1 commands
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Run static checks and tests:
-
-```bash
-python -m compileall -q .
-python -m unittest discover -s tests -v
-```
-
-The pinned environment currently uses TensorFlow/Keras, NumPy, pandas,
-scikit-learn, matplotlib, Pillow, and joblib. See `requirements.txt` for exact
-versions.
-
----
-
-## Stage 1: topology and reconstruction experiments
-
-Validate a Stage 1 config without importing TensorFlow:
+Validate a config without importing TensorFlow:
 
 ```bash
 python analysis/validate_stage1_config.py configs/topology_ablation.json
 ```
 
-Run controlled Stage 1 experiments:
+Run experiments:
 
 ```bash
 python main_experiment.py --config configs/topology_ablation.json
@@ -196,27 +234,7 @@ python main_experiment.py --config configs/structured_comparison.json
 python main_experiment.py --config configs/loss_ablation.json
 ```
 
-`split_seed` fixes the deterministic pilot image split. `training_seeds` expands
-each experiment across multiple initialization/training seeds.
-
-Each Stage 1 run saves:
-
-```text
-config.json
-result.json
-history.csv
-provenance.json
-split_manifest.csv
-model_summary.txt
-encoder_summary.txt
-decoder_summary.txt
-per_image_metrics.csv
-curves/
-figures/
-checkpoints/best.keras
-```
-
-Aggregate completed Stage 1 runs with:
+Aggregate:
 
 ```bash
 python aggregate_results.py outputs/topology_ablation
@@ -225,12 +243,9 @@ python analysis/make_paper_tables.py outputs/topology_ablation/mean_std.csv
 
 ---
 
-## Stage 2: CUB concept/residual experiments
+## Stage 2 execution order
 
-For the exact staged protocol currently supported by code, see
-[`ATTRIBUTE_EXPERIMENTS.md`](ATTRIBUTE_EXPERIMENTS.md).
-
-### 1. Prepare attributes and split manifest
+### 1. Prepare and audit attributes
 
 ```bash
 python prepare_attributes.py \
@@ -238,175 +253,107 @@ python prepare_attributes.py \
   --output outputs/attribute_preparation
 ```
 
-Expected outputs include:
-
-```text
-outputs/attribute_preparation/
-├── attribute_statistics.csv
-├── group_statistics.csv
-├── split_manifest.csv
-├── selected_attributes.json
-└── attribute_selection_report.md
-```
-
-Selection uses only the training subset inside the official CUB training split.
-Do not use official-test metrics for selection.
+This writes attribute/group statistics, a split manifest, the initial selection,
+and an audit report. Selection uses only the train subset inside official train.
 
 ### 2. Smoke test
 
 Edit paths in `configs/factorized_smoke.json`, then run:
 
 ```bash
-python main_factorized.py --config configs/factorized_smoke.json
+python run_factorized.py --config configs/factorized_smoke.json
 ```
 
-This runs a small concept model and a small continuous-control model with at
-most 64 images per split.
+The smoke config is validation-only and may not load official-test images.
 
-### 3. Concept-predictor pilot and predictability filter
+### 3. Standalone concept observability pilot
 
 ```bash
-python main_factorized.py --config configs/concept_pilot.json
+python standalone_concept_predictor.py \
+  --config configs/standalone_concept_pilot.json
 ```
 
-Then refine the selected attribute groups from the pilot concept metrics:
+This model is exactly:
+
+```text
+shared convolutional trunk -> GAP -> Dense -> sigmoid
+```
+
+It has no residual, no `SemanticBottleneck`, no reconstruction decoder, and no
+reconstruction loss. It is the primary Week-1 observability upper bound.
+
+### 4. Freeze predictable groups
+
+Use only selection-validation metrics:
 
 ```bash
 python analysis/refine_attribute_selection.py \
   --initial-selection outputs/attribute_preparation/selected_attributes.json \
-  --concept-metrics outputs/concept_pilot/REPLACE_WITH_RUN/concept_metrics.csv \
-  --attribute-definitions outputs/concept_pilot/selected_attribute_definitions.csv \
+  --concept-metrics outputs/standalone_concept_pilot/concept_metrics.csv \
+  --attribute-definitions outputs/standalone_concept_pilot/selected_attribute_definitions.csv \
   --min-group-ap-lift 0.05 \
-  --output outputs/attribute_preparation/selected_attributes_final.json
+  --output outputs/attribute_preparation/selected_attributes_predictable_groups.json
 ```
 
-### 4. Full matched factorized experiment
+Held-out or official-test reporting must not reuse the same split used for
+selection without being labelled selection-biased.
 
-Edit `cub_root` in `configs/factorized_concepts.json`. The default config runs
-seeds 42, 43, and 44 for:
-
-- clean concept/residual factorized model;
-- mild residual corruption;
-- medium residual corruption;
-- rate-proxy-matched continuous `u` control;
-- concept-only reconstruction.
-
-Run:
+### 5. Seed-41 validation-only capacity pilot
 
 ```bash
-python main_factorized.py --config configs/factorized_concepts.json
+python run_factorized.py --config configs/factorized_capacity_pilot.json
 ```
 
-### 5. Residual-to-concept leakage probe
+The pilot compares active residual capacities 960/512/256/128 under fixed model
+parameter counts. It does not evaluate official test.
 
-Fast backward-compatible linear probe:
+`configs/factorized_capacity_sweep.json` is retained as a compatibility alias
+for a validation-only pilot; new work should use
+`configs/factorized_capacity_pilot.json`.
 
-```bash
-python analysis/concept_probe.py \
-  --train-latents outputs/factorized_concepts/RUN/train_probe_latents.npz \
-  --validation-latents outputs/factorized_concepts/RUN/validation_latents.npz \
-  --attribute-definitions outputs/factorized_concepts/selected_attribute_definitions.csv \
-  --output outputs/factorized_concepts/RUN/concept_probe.csv
-```
+### 6. Leakage probes
 
-Two-level diagnostic with real-vs-null linear/MLP probes:
+Fast linear diagnostic:
 
 ```bash
 python analysis/concept_probe.py \
-  --train-latents outputs/factorized_concepts/RUN/train_probe_latents.npz \
-  --validation-latents outputs/factorized_concepts/RUN/validation_latents.npz \
-  --test-latents outputs/factorized_concepts/RUN/official_test_probe_latents.npz \
-  --evaluation-split test \
-  --attribute-definitions outputs/factorized_concepts/selected_attribute_definitions.csv \
-  --output outputs/factorized_concepts/RUN/concept_probe.csv \
-  --probe-types linear,mlp \
-  --null-repeats 20 \
-  --jobs 4
+  --train-latents outputs/factorized_capacity_pilot/RUN/train_probe_latents.npz \
+  --validation-latents outputs/factorized_capacity_pilot/RUN/validation_latents.npz \
+  --attribute-definitions outputs/factorized_capacity_pilot/selected_attribute_definitions.csv \
+  --output outputs/factorized_capacity_pilot/RUN/concept_probe.csv
 ```
 
-`20` null repeats is a diagnostic setting. It is too coarse for strong
-confirmatory p-values or FDR claims.
+For confirmatory real/null inference, freeze probe hyperparameters on pilot
+latents first; then use the same fixed hyperparameters for real and every null.
+Do not tune separately inside each null replicate.
 
-Aggregate Stage 2 runs with:
+### 7. Confirmatory release
 
-```bash
-python analysis/aggregate_factorized.py outputs/factorized_concepts
-```
+The repository intentionally does not ship a ready-to-run official-test config.
+After the concept subset, retained capacities, checkpoint rules, and analysis
+definitions are frozen:
+
+1. create a dedicated confirmatory config;
+2. use seeds 42/43/44, or a pre-recorded hardware-failure replacement;
+3. make every experiment name contain `confirmatory`;
+4. set both release flags to `true`;
+5. run once through `run_factorized.py`.
 
 ---
 
-## Stage 2 output files
-
-Each concept run may contain:
-
-```text
-config.json
-result.json
-history.csv
-model_summary.txt
-encoder_summary.txt
-decoder_summary.txt
-concept_metrics.csv
-concept_group_metrics.csv
-semantic_bottleneck_analysis.csv
-group_interventions.csv
-validation_latents.npz
-train_probe_latents.npz
-official_test_probe_latents.npz
-official_test_result.json
-figures/group_interventions/
-```
-
-Interpret key files together:
-
-- `semantic_bottleneck_analysis.csv`
-  - compares hard predicted, soft predicted, and ground-truth visible concepts;
-- `group_interventions.csv`
-  - measures whether changing concept groups affects reconstructions;
-- `concept_metrics.csv` and `concept_group_metrics.csv`
-  - report concept prediction quality;
-- `concept_probe.csv` and `concept_probe_groups.csv`
-  - backward-compatible residual-to-concept leakage summaries;
-- `concept_probe_linear.csv`, `concept_probe_mlp.csv`, and null tables
-  - detailed probe diagnostics when requested.
-
-Important interpretation boundaries:
+## Interpretation boundaries
 
 - Good reconstruction does not prove concept faithfulness.
-- High concept prediction quality does not prove the decoder uses concepts.
-- A positive `m -> concept` probe shows recoverable information in the residual,
-  but does not by itself prove the decoder uses that information.
-- Bird bounding-box metrics are not segmentation-mask metrics.
-- Part-landmark ROIs are local approximations, not strict localization proof.
-- Global SSIM can hide small localized concept effects.
-
----
-
-## Research notes and limitations
-
-- Stage 1 is a controlled 64x64 topology study; do not claim universal
-  generalization to all resolutions, datasets, or decoders.
-- Stage 2 currently implements an initial concept/residual diagnostic pipeline,
-  not the final capacity-sweep protocol.
-- Official CUB test metrics should be used only after concept selection,
-  checkpoint rules, and analysis definitions are frozen.
-- Historical random 80/20 Stage 1 results are pilot results and must not be
-  combined with official-split Stage 2 statistics.
-
----
-
-## Deprecated entry points
-
-The following files are kept for backward compatibility only:
-
-```text
-main.py
-main_bottleneck_ablation.py
-```
-
-New experiments should use:
-
-```text
-main_experiment.py      # Stage 1
-main_factorized.py      # Stage 2
-```
+- High concept AP/BA does not prove the decoder uses concepts.
+- A positive `m -> concept` probe shows recoverable residual information, not
+  necessarily information used by the decoder.
+- A binary unsupervised `u` is a supervision control, not proof that semantics
+  are the only difference learned during optimization.
+- Pixel or ROI change is not automatically semantic intervention success.
+- Bird bounding boxes are not segmentation masks.
+- Part-landmark ROIs are approximations.
+- Global SSIM can hide localized effects.
+- The concept path's GAP bottleneck is structurally disadvantaged for spatial
+  reconstruction relative to the residual path.
+- Current conclusions are specific to 64×64 CUB and the present convolutional
+  encoder-decoder unless separately confirmed.
