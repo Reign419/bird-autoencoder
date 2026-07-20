@@ -7,7 +7,7 @@ concept-conditioned image reconstruction.
 The repository contains two experiment tracks:
 
 1. **Stage 1 — latent topology and reconstruction**
-   - official entry: `main_experiment.py`;
+   - entry point: `main_experiment.py`;
    - compares spatial, ordered-vector, fixed-permutation, global-mixing,
      global-compression, and spatial-channel-compression bottlenecks;
    - current controlled conclusion:
@@ -17,72 +17,78 @@ The repository contains two experiment tracks:
      ```
 
 2. **Stage 2 — factorized concept/residual reconstruction**
-   - safety-checked entry: `run_factorized.py`;
-   - internal training implementation: `main_factorized.py`;
-   - uses official CUB metadata, certainty-weighted concepts, a fixed-width
-     structured residual, matched unsupervised controls, concept interventions,
-     optional part ROIs, and residual-to-concept probes.
+   - safety-checked entry point: `run_factorized.py`;
+   - internal runner: `main_factorized.py`;
+   - uses official CUB metadata, certainty-weighted concepts, fixed-width
+     structured residuals, matched unsupervised controls, interventions, local
+     ROI summaries, and residual-to-concept probes.
 
 The project currently uses **64×64 full images**, no bounding-box crop, and no
 encoder-decoder skip connections.
 
 ---
 
-## Critical safety rule: official test is locked
+## Official test is locked
 
-All pilot and development configs must contain:
+All development and pilot configs must use:
 
 ```json
 "evaluate_official_test": false,
 "official_test_release": false
 ```
 
-Run Stage 2 through:
+Run Stage 2 with:
 
 ```bash
 python run_factorized.py --config CONFIG.json
 ```
 
-Official-test evaluation is allowed only when both flags are explicitly true
-**and every experiment name contains `confirmatory`**. The same guard also runs
-inside `main_factorized.main()`, so calling the internal runner directly does
-not bypass the lock.
+Official-test evaluation is permitted only when:
 
-Never use official-test results for concept selection, capacity selection,
-checkpoint-rule selection, or intervention-definition selection.
+1. `evaluate_official_test=true`;
+2. `official_test_release=true`;
+3. every factorized experiment name contains `confirmatory`, or a standalone
+   config has a top-level `run_name` containing `confirmatory`.
+
+The same guard executes inside `main_factorized.main()`, so invoking the
+internal runner directly does not bypass the lock.
+
+Official-test results must not be used for concept selection, capacity
+selection, checkpoint-rule selection, or intervention-definition selection.
 
 ---
 
-## Current implementation status
+## Implemented
 
-### Stage 1 implemented
+### Stage 1
 
-- config-driven runner: `main_experiment.py`;
-- deterministic pilot split with separate split/training seeds;
-- per-run config, provenance, split manifest, model summaries, checkpoint,
-  per-image metrics, curves, reconstruction grids, and difference maps;
-- A/B ordered-vector equivalence, position permutation, orthogonal/global
-  mixing, and compression controls;
+- config-driven experiment runner;
+- deterministic pilot split with separate split and training seeds;
+- A/B ordered-vector equivalence and topology controls;
+- per-run config, provenance, split manifest, checkpoint, summaries,
+  per-image metrics, curves, reconstructions, and difference maps;
 - seed aggregation and paper-table utilities.
 
-### Stage 2 implemented
+### Stage 2
 
-- CUB official train/test parsing and train-internal validation split;
+- official CUB train/test parsing and train-internal validation splitting;
 - certainty-weighted multi-label attribute supervision;
 - whole-group attribute preparation and predictability refinement;
-- standalone decoder-free concept observability predictor:
-  `standalone_concept_predictor.py`;
-- three current factorized modes:
-  - `concept`: supervised concepts plus residual;
-  - `control`: unsupervised matched binary condition `u` plus residual;
-  - `concept_only`: supervised concepts without residual;
-- fixed residual-head geometry:
-  - encoder always produces `8×8×15` residual channels;
-  - a non-trainable prefix `ChannelMask` activates 15/8/4/2 channels;
-  - decoder always receives `8×8×15`;
-  - encoder and decoder trainable parameter counts are invariant across the
-    capacity sweep;
-- matched `u` path:
+- standalone decoder-free concept observability predictor;
+- `concept`, `control`, and `concept_only` modes;
+- fixed residual geometry:
+
+  ```text
+  shared features
+  -> Conv2D(15)
+  -> non-trainable prefix ChannelMask
+  -> always-shaped 8×8×15 decoder input
+  ```
+
+  Active channels are 15/8/4/2, while encoder and decoder trainable parameter
+  counts remain invariant.
+
+- matched binary unsupervised condition:
 
   ```text
   c: Dense(Dc) -> sigmoid -> SemanticBottleneck + concept loss
@@ -90,43 +96,46 @@ checkpoint-rule selection, or intervention-definition selection.
   ```
 
 - hard/soft/visible-ground-truth concept diagnostics;
-- group interventions, bird bounding-box summaries, and landmark-centred ROIs;
-- linear/MLP residual-to-concept probes with backward-compatible outputs;
-- Stage 2 result aggregation.
+- group interventions, bird bounding boxes, and landmark-centred ROIs;
+- linear/MLP `m -> concept` probes with backward-compatible outputs;
+- factorized result aggregation.
 
 ### Still pending for the full Workshop protocol
 
-- residual-only `z=m` mode in the unified Stage 2 runner;
+- residual-only `z=m` mode in the unified runner;
 - frozen-shared-trunk concept readout probe;
 - independent semantic intervention evaluator;
 - valid donor-swap semantic-success metrics;
+- `u` intervention/usage diagnostics;
 - frozen probe hyperparameters for confirmatory real/null inference;
 - final confirmatory capacity config and one-shot official-test release.
 
 ---
 
-## Important architectural limitation
+## Important structural limitation
 
-The current concept path is image-level:
+The current concept path is global:
 
 ```text
-shared spatial features
+shared 8×8 features
 -> GlobalAveragePooling2D
 -> Dense(Dc)
 -> sigmoid / binary bottleneck
 -> Dense back to an 8×8 condition map
 ```
 
-The residual path preserves the full `8×8` feature grid through a `1×1`
-convolution. Therefore, the concept path cannot encode instance-specific spatial
-location before the bottleneck, while the residual can. This is intentional for
-image-level CUB attributes, but it is also a structural confound:
+The residual path preserves the full `8×8` grid through a `1×1` convolution.
+Therefore, the concept code cannot carry instance-specific spatial location
+before the bottleneck, while the residual can.
 
-- low concept use may reflect residual bypass;
-- low concept use may reflect weak conditioning or training competition;
-- low concept use may also reflect the concept path's loss of spatial detail.
+Low concept use may therefore reflect at least four mechanisms:
 
-The current work must not treat these explanations as interchangeable.
+1. limited concept observability at 64×64;
+2. joint-training or discretization failure;
+3. accessible residual bypass;
+4. structural spatial disadvantage of the global concept path.
+
+A null intervention result does not distinguish these mechanisms by itself.
 
 ---
 
@@ -157,7 +166,8 @@ bird-autoencoder/
 │   ├── factorized_smoke.json
 │   ├── standalone_concept_pilot.json
 │   ├── factorized_capacity_pilot.json
-│   └── factorized_concepts.json
+│   ├── factorized_concepts.json
+│   └── archive/factorized_corruption_legacy.json
 ├── analysis/
 │   ├── validate_stage1_config.py
 │   ├── refine_attribute_selection.py
@@ -169,7 +179,7 @@ bird-autoencoder/
 
 ---
 
-## Setup
+## Setup and checks
 
 ```bash
 python -m venv .venv
@@ -179,8 +189,11 @@ python -m compileall -q .
 python -m unittest discover -s tests -v
 ```
 
-The pinned environment currently uses TensorFlow 2.21 / Keras 3.15. See
+The pinned environment currently uses TensorFlow 2.21 and Keras 3.15. See
 `requirements.txt` for exact versions.
+
+Do not start GPU experiments unless the official-test guard and residual-mask
+invariance tests pass on the training server.
 
 ---
 
@@ -194,7 +207,7 @@ Stage 1 configs point `dataset_path` to:
 CUB_200_2011/images/
 ```
 
-Stage 1 uses a deterministic 80/20 pilot split. Do not combine those statistics
+Stage 1 uses a deterministic 80/20 pilot split. Do not combine these statistics
 with official-split Stage 2 results.
 
 ### Stage 2
@@ -212,22 +225,12 @@ CUB_200_2011/
     └── part_locs.txt
 ```
 
-The first attribute preparation run creates a compact cache under the dataset
-root unless another cache path is configured.
-
 ---
 
 ## Stage 1 commands
 
-Validate a config without importing TensorFlow:
-
 ```bash
 python analysis/validate_stage1_config.py configs/topology_ablation.json
-```
-
-Run experiments:
-
-```bash
 python main_experiment.py --config configs/topology_ablation.json
 python main_experiment.py --config configs/ordered_vector_equivalence.json
 python main_experiment.py --config configs/structured_comparison.json
@@ -245,7 +248,7 @@ python analysis/make_paper_tables.py outputs/topology_ablation/mean_std.csv
 
 ## Stage 2 execution order
 
-### 1. Prepare and audit attributes
+### 1. Prepare attributes
 
 ```bash
 python prepare_attributes.py \
@@ -253,18 +256,15 @@ python prepare_attributes.py \
   --output outputs/attribute_preparation
 ```
 
-This writes attribute/group statistics, a split manifest, the initial selection,
-and an audit report. Selection uses only the train subset inside official train.
+Selection uses only the train subset inside official train.
 
 ### 2. Smoke test
-
-Edit paths in `configs/factorized_smoke.json`, then run:
 
 ```bash
 python run_factorized.py --config configs/factorized_smoke.json
 ```
 
-The smoke config is validation-only and may not load official-test images.
+The smoke config is seed 41, validation-only, and cannot load official test.
 
 ### 3. Standalone concept observability pilot
 
@@ -273,18 +273,33 @@ python standalone_concept_predictor.py \
   --config configs/standalone_concept_pilot.json
 ```
 
-This model is exactly:
+The actual predictor graph is:
 
 ```text
 shared convolutional trunk -> GAP -> Dense -> sigmoid
 ```
 
-It has no residual, no `SemanticBottleneck`, no reconstruction decoder, and no
-reconstruction loss. It is the primary Week-1 observability upper bound.
+It contains no residual, `SemanticBottleneck`, decoder, or reconstruction loss.
+The train-internal validation pool is split into two disjoint, class-stratified
+subsets:
+
+- `selection_validation`: checkpointing and concept/group selection;
+- `reporting_validation`: untouched held-out observability reporting.
+
+Outputs include:
+
+```text
+concept_metrics.csv                       # selection only
+concept_group_metrics.csv                 # selection only
+reporting_concept_metrics.csv             # held-out reporting
+reporting_concept_group_metrics.csv       # held-out reporting
+split_manifest.csv
+result.json
+```
 
 ### 4. Freeze predictable groups
 
-Use only selection-validation metrics:
+Use only the selection tables:
 
 ```bash
 python analysis/refine_attribute_selection.py \
@@ -295,25 +310,22 @@ python analysis/refine_attribute_selection.py \
   --output outputs/attribute_preparation/selected_attributes_predictable_groups.json
 ```
 
-Held-out or official-test reporting must not reuse the same split used for
-selection without being labelled selection-biased.
+Do not present the selection metrics as an unbiased upper bound. Use the
+`reporting_*` files for held-out observability reporting.
 
-### 5. Seed-41 validation-only capacity pilot
+### 5. Seed-41 capacity pilot
 
 ```bash
 python run_factorized.py --config configs/factorized_capacity_pilot.json
 ```
 
 The pilot compares active residual capacities 960/512/256/128 under fixed model
-parameter counts. It does not evaluate official test.
+parameter counts and does not evaluate official test.
 
-`configs/factorized_capacity_sweep.json` is retained as a compatibility alias
-for a validation-only pilot; new work should use
-`configs/factorized_capacity_pilot.json`.
+`configs/factorized_capacity_sweep.json` remains a validation-only compatibility
+alias; new experiments should use `factorized_capacity_pilot.json`.
 
-### 6. Leakage probes
-
-Fast linear diagnostic:
+### 6. Leakage probe
 
 ```bash
 python analysis/concept_probe.py \
@@ -323,9 +335,9 @@ python analysis/concept_probe.py \
   --output outputs/factorized_capacity_pilot/RUN/concept_probe.csv
 ```
 
-For confirmatory real/null inference, freeze probe hyperparameters on pilot
-latents first; then use the same fixed hyperparameters for real and every null.
-Do not tune separately inside each null replicate.
+For confirmatory real/null inference, choose and freeze all probe
+hyperparameters on seed-41 pilot latents. Use the same fixed values for the real
+probe and every null; do not run a new grid search inside each null replicate.
 
 ### 7. Confirmatory release
 
@@ -334,26 +346,39 @@ After the concept subset, retained capacities, checkpoint rules, and analysis
 definitions are frozen:
 
 1. create a dedicated confirmatory config;
-2. use seeds 42/43/44, or a pre-recorded hardware-failure replacement;
-3. make every experiment name contain `confirmatory`;
+2. use pre-registered seeds 42/43/44, or a pre-recorded infrastructure-failure
+   replacement;
+3. include `confirmatory` in every run name;
 4. set both release flags to `true`;
-5. run once through `run_factorized.py`.
+5. run once through the safety-checked entry point.
+
+---
+
+## Archived experiments
+
+Mild and medium residual corruption were removed from the primary path until
+leakage and conditioning diagnostics are complete. Their historical config is
+preserved at:
+
+```text
+configs/archive/factorized_corruption_legacy.json
+```
 
 ---
 
 ## Interpretation boundaries
 
 - Good reconstruction does not prove concept faithfulness.
-- High concept AP/BA does not prove the decoder uses concepts.
+- High concept AP/BA does not prove decoder concept use.
 - A positive `m -> concept` probe shows recoverable residual information, not
   necessarily information used by the decoder.
 - A binary unsupervised `u` is a supervision control, not proof that semantics
-  are the only difference learned during optimization.
+  are the only learned difference.
 - Pixel or ROI change is not automatically semantic intervention success.
 - Bird bounding boxes are not segmentation masks.
 - Part-landmark ROIs are approximations.
 - Global SSIM can hide localized effects.
-- The concept path's GAP bottleneck is structurally disadvantaged for spatial
-  reconstruction relative to the residual path.
+- The GAP concept path is structurally disadvantaged for spatial reconstruction
+  relative to the residual path.
 - Current conclusions are specific to 64×64 CUB and the present convolutional
   encoder-decoder unless separately confirmed.
