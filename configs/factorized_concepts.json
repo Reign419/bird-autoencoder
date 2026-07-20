@@ -15,7 +15,8 @@
   "reduce_lr_patience": 3,
   "monitor": "val_reconstruction_ssim_metric",
   "monitor_mode": "max",
-  "evaluate_official_test": true,
+  "evaluate_official_test": false,
+  "official_test_release": false,
   "save_probe_latents": true,
   "intervention_max_images": 256,
   "part_roi_radius": 6,
@@ -36,27 +37,11 @@
       "residual_noise_std": 0.0
     },
     {
-      "name": "factorized_mild_corruption",
-      "mode": "concept",
-      "concept_weight": 1.0,
-      "semantic_method": "ste",
-      "residual_dropout": 0.1,
-      "residual_noise_std": 0.05
-    },
-    {
-      "name": "factorized_medium_corruption",
-      "mode": "concept",
-      "concept_weight": 1.0,
-      "semantic_method": "ste",
-      "residual_dropout": 0.2,
-      "residual_noise_std": 0.1
-    },
-    {
-      "name": "matched_continuous_control",
+      "name": "matched_binary_control",
       "mode": "control",
-      "control_noise_std": "auto",
-      "residual_dropout": 0.1,
-      "residual_noise_std": 0.05
+      "residual_dropout": 0.0,
+      "residual_noise_std": 0.0,
+      "semantic_method": "ste"
     },
     {
       "name": "concept_only",
