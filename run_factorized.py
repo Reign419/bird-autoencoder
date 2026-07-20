@@ -2,7 +2,7 @@
 
 Use this launcher instead of calling ``main_factorized.py`` directly. Official
 CUB test evaluation is disabled unless the config explicitly releases it and
-every experiment name is marked confirmatory.
+all named runs are marked confirmatory.
 """
 
 from __future__ import annotations
@@ -17,11 +17,24 @@ def load_config(path: str | Path) -> dict:
         return json.load(handle)
 
 
+def configured_run_names(config: dict) -> list[str]:
+    """Return names that must explicitly declare a confirmatory release.
+
+    Factorized configs contain an ``experiments`` list. Standalone evaluators
+    use a single top-level ``run_name``. Requiring one of these forms prevents a
+    nameless config from releasing the official test accidentally.
+    """
+    experiments = config.get("experiments")
+    if experiments is not None:
+        return [str(item.get("name", "")).strip() for item in experiments]
+    top_level = config.get("run_name", config.get("experiment_name", ""))
+    return [str(top_level).strip()] if top_level else []
+
+
 def validate_official_test_release(config: dict) -> None:
     evaluate = bool(config.get("evaluate_official_test", False))
     release = bool(config.get("official_test_release", False))
-    experiments = config.get("experiments", [])
-    names = [str(item.get("name", "")) for item in experiments]
+    names = configured_run_names(config)
 
     if release and not evaluate:
         raise ValueError(
@@ -38,8 +51,8 @@ def validate_official_test_release(config: dict) -> None:
         )
     if not names or any("confirmatory" not in name.lower() for name in names):
         raise PermissionError(
-            "Official test release requires every experiment name to contain "
-            "'confirmatory'."
+            "Official test release requires every configured run name to "
+            "contain 'confirmatory'."
         )
 
 
