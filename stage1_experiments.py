@@ -24,11 +24,12 @@ TOPOLOGY_VARIANTS = {"A", "B", "P", "C_prime", "C", "D"}
 
 def build_experiment_list(base_config):
     """Merge global defaults and deterministically expand training seeds."""
-    if "experiments" not in base_config:
-        raise ValueError("Please use experiments in config.json.")
+    sources = base_config.get("experiments")
+    if sources is None:
+        sources = _legacy_experiment_sources(base_config)
     experiments = []
     training_seeds = base_config.get("training_seeds")
-    for index, source in enumerate(base_config["experiments"]):
+    for index, source in enumerate(sources):
         experiment = deepcopy(source)
         experiment.setdefault("name", f"experiment_{index:02d}")
         experiment.setdefault("loss", base_config.get("loss", "l1_ssim_edge"))
@@ -48,6 +49,41 @@ def build_experiment_list(base_config):
             seeded["training_seed"] = int(seed)
             experiments.append(seeded)
     return experiments
+
+
+def _legacy_experiment_sources(base_config):
+    """Translate the original main.py latent list format into experiments."""
+    model_name = base_config.get("model_name")
+    if not model_name:
+        raise ValueError("Config must define experiments or model_name")
+    if model_name == "spatial_lite":
+        values = base_config.get("latent_channels", base_config.get("latent_dim"))
+        key = "latent_channels"
+    else:
+        values = base_config.get("latent_dims", base_config.get("latent_dim"))
+        key = "latent_dim"
+    if values is None:
+        raise ValueError(f"Legacy {model_name} config is missing {key}")
+    if not isinstance(values, (list, tuple)):
+        values = [values]
+    grid = int(base_config.get("latent_grid_size", 8))
+    result = []
+    for value in values:
+        value = int(value)
+        name = (
+            f"spatial_{grid}x{grid}x{value}"
+            if model_name == "spatial_lite"
+            else f"{model_name}_latent{value}"
+        )
+        result.append(
+            {
+                "name": name,
+                "model_name": model_name,
+                key: value,
+                "latent_grid_size": grid,
+            }
+        )
+    return result
 
 
 def normalize_experiment(source):
@@ -139,8 +175,9 @@ def normalize_experiment(source):
 
 def prepare_experiments(base_config):
     experiments = [normalize_experiment(item) for item in build_experiment_list(base_config)]
+    default_seed = _default_training_seed(base_config)
     identities = [
-        (item["name"], int(item.get("training_seed", base_config.get("training_seed", 42))))
+        (item["name"], int(item.get("training_seed", default_seed)))
         for item in experiments
     ]
     duplicates = sorted({identity for identity in identities if identities.count(identity) > 1})
@@ -161,7 +198,7 @@ def build_run_name(experiment, loss_label, training_seed, timestamp):
 
 def experiment_rows(base_config):
     """Return a compact, stable table representation for config validation."""
-    default_seed = int(base_config.get("training_seed", base_config.get("split_seed", 42)))
+    default_seed = _default_training_seed(base_config)
     return [
         {
             "experiment_name": item["name"],
@@ -183,3 +220,8 @@ def _positive_int(mapping, key, default=None):
     if value < 1:
         raise ValueError(f"{key} must be positive")
     return value
+
+
+def _default_training_seed(base_config):
+    split_seed = base_config.get("split_seed", base_config.get("random_state", 42))
+    return int(base_config.get("training_seed", split_seed))

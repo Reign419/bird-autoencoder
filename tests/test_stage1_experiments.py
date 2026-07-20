@@ -9,6 +9,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Stage1ExperimentConfigTest(unittest.TestCase):
+    def test_legacy_latent_list_is_translated_to_shared_runner_format(self):
+        experiments = prepare_experiments(
+            {
+                "model_name": "cnn",
+                "latent_dims": [128, 256],
+                "random_state": 42,
+            }
+        )
+        self.assertEqual(
+            [item["name"] for item in experiments],
+            ["cnn_latent128", "cnn_latent256"],
+        )
+        self.assertEqual(
+            [item["effective_latent_size"] for item in experiments],
+            [128, 256],
+        )
+
     def test_topology_config_expands_to_eleven_variants_by_three_seeds(self):
         config = json.loads(
             (ROOT / "configs" / "topology_ablation.json").read_text(encoding="utf-8")

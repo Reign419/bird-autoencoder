@@ -77,6 +77,9 @@ bird-autoencoder/
 
 Legacy models and entry points remain available while the experiment runner is
 migrated; they should not be used to infer the current research conclusions.
+`main.py` and `main_bottleneck_ablation.py` are now deprecated compatibility
+wrappers around `main_experiment.py`; they no longer contain separate training
+loops.
 
 ## Setup
 
