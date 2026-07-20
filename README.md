@@ -89,6 +89,7 @@ to the CUB `images/` directory.
 
 ```bash
 python main_experiment.py --config configs/topology_ablation.json
+python main_experiment.py --config configs/ordered_vector_equivalence.json
 python main_experiment.py --config configs/structured_comparison.json
 python main_experiment.py --config configs/loss_ablation.json
 ```
