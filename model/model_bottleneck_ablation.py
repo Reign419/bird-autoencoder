@@ -5,23 +5,11 @@ import tensorflow as tf
 from tensorflow.keras import Model, initializers, layers
 
 try:
-    from .model_common import (
-        conv_bn_act,
-        make_channel_schedule,
-        residual_block,
-        residual_down_block,
-        residual_up_block,
-        resolve_latent_grid,
-    )
+    from .model_common import resolve_latent_grid
+    from .model_topology_common import build_spatial_encoder, decode_spatial_features
 except ImportError:
-    from model_common import (
-        conv_bn_act,
-        make_channel_schedule,
-        residual_block,
-        residual_down_block,
-        residual_up_block,
-        resolve_latent_grid,
-    )
+    from model_common import resolve_latent_grid
+    from model_topology_common import build_spatial_encoder, decode_spatial_features
 
 
 VARIANTS = {"A", "B", "P", "C_prime", "C", "D"}
@@ -123,8 +111,7 @@ def build_bottleneck_ablation_autoencoder(
     if spatial_channels < 1:
         raise ValueError("spatial_channels must be positive")
 
-    latent_h, latent_w, n_down = resolve_latent_grid(img_shape, latent_grid_size)
-    schedule = make_channel_schedule(n_down, base_channels, max_channels)
+    latent_h, latent_w, _ = resolve_latent_grid(img_shape, latent_grid_size)
     spatial_area = latent_h * latent_w
     full_dim = spatial_area * spatial_channels
 
@@ -138,18 +125,18 @@ def build_bottleneck_ablation_autoencoder(
             f"For D, compressed_dim must be divisible by latent area {spatial_area}"
         )
 
-    encoder_input = layers.Input(shape=img_shape, name="image")
-    # Match the existing spatial_lite baseline's initialization and blocks.
-    x = conv_bn_act(encoder_input, base_channels, kernel_initializer=None)
-    for filters in schedule:
-        x = residual_down_block(x, filters, kernel_initializer=None)
-
-    common_map = layers.Conv2D(
-        spatial_channels,
-        1,
-        padding="same",
-        name="common_spatial_map",
-    )(x)
+    spatial_encoder, _, schedule = build_spatial_encoder(
+        img_shape=img_shape,
+        latent_channels=spatial_channels,
+        latent_grid_size=latent_grid_size,
+        base_channels=base_channels,
+        max_channels=max_channels,
+        latent_layer_name="common_spatial_map",
+        encoder_name="common_ablation_encoder",
+        input_name="image",
+    )
+    encoder_input = spatial_encoder.input
+    common_map = spatial_encoder.output
 
     if variant == "A":
         bottleneck = layers.Activation("linear", name="bottleneck_A_identity")(common_map)
@@ -236,18 +223,13 @@ def build_bottleneck_ablation_autoencoder(
         )
         decoder_features = decoder_input
 
-    x = conv_bn_act(decoder_features, schedule[-1], kernel_initializer=None)
-    x = residual_block(x, schedule[-1], kernel_initializer=None)
-    decoder_filters = list(reversed(schedule[:-1])) + [max(base_channels // 2, 1)]
-    for filters in decoder_filters:
-        x = residual_up_block(x, filters, kernel_initializer=None)
-    decoder_output = layers.Conv2D(
-        img_shape[-1],
-        3,
-        padding="same",
-        activation="sigmoid",
-        name="reconstruction",
-    )(x)
+    decoder_output = decode_spatial_features(
+        decoder_features,
+        img_shape=img_shape,
+        schedule=schedule,
+        base_channels=base_channels,
+        output_name="reconstruction",
+    )
     decoder = Model(decoder_input, decoder_output, name="shared_ablation_decoder")
 
     autoencoder = Model(
