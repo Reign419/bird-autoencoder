@@ -1,0 +1,21 @@
+{
+  "run_name": "pilot_standalone_concept",
+  "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
+  "selected_attributes_path": "outputs/attribute_preparation/selected_attributes.json",
+  "output_path": "outputs/standalone_concept_pilot",
+  "img_size": [64, 64],
+  "validation_fraction": 0.20,
+  "reporting_fraction_of_validation": 0.50,
+  "reporting_split_seed": 1041,
+  "split_seed": 42,
+  "training_seed": 41,
+  "learning_rate": 0.001,
+  "gradient_clipnorm": 1.0,
+  "positive_class_weight_cap": 10.0,
+  "batch_size": 32,
+  "epochs": 60,
+  "early_stopping_patience": 8,
+  "reduce_lr_patience": 3,
+  "evaluate_official_test": false,
+  "official_test_release": false
+}

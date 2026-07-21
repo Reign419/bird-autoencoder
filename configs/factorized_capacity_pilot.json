@@ -1,7 +1,7 @@
 {
   "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
   "selected_attributes_path": "outputs/attribute_preparation/selected_attributes_predictable_groups.json",
-  "output_path": "outputs/factorized_capacity_sweep_legacy",
+  "output_path": "outputs/factorized_capacity_pilot",
   "img_size": [64, 64],
   "validation_fraction": 0.15,
   "split_seed": 42,
@@ -75,33 +75,33 @@
       "name": "pilot_matched_control_m960",
       "mode": "control",
       "residual_channels": 15,
+      "semantic_method": "ste",
       "residual_dropout": 0.0,
-      "residual_noise_std": 0.0,
-      "semantic_method": "ste"
+      "residual_noise_std": 0.0
     },
     {
       "name": "pilot_matched_control_m512",
       "mode": "control",
       "residual_channels": 8,
+      "semantic_method": "ste",
       "residual_dropout": 0.0,
-      "residual_noise_std": 0.0,
-      "semantic_method": "ste"
+      "residual_noise_std": 0.0
     },
     {
       "name": "pilot_matched_control_m256",
       "mode": "control",
       "residual_channels": 4,
+      "semantic_method": "ste",
       "residual_dropout": 0.0,
-      "residual_noise_std": 0.0,
-      "semantic_method": "ste"
+      "residual_noise_std": 0.0
     },
     {
       "name": "pilot_matched_control_m128",
       "mode": "control",
       "residual_channels": 2,
+      "semantic_method": "ste",
       "residual_dropout": 0.0,
-      "residual_noise_std": 0.0,
-      "semantic_method": "ste"
+      "residual_noise_std": 0.0
     }
   ]
 }
