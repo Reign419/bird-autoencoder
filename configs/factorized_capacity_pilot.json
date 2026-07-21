@@ -1,10 +1,12 @@
 {
+  "protocol_stage": "capacity_pilot",
   "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
   "selected_attributes_path": "outputs/attribute_preparation/selected_attributes_predictable_groups.json",
   "output_path": "outputs/factorized_capacity_pilot",
   "img_size": [64, 64],
   "validation_fraction": 0.15,
   "split_seed": 42,
+  "max_residual_channels": 15,
   "training_seeds": [41],
   "learning_rate": 0.001,
   "gradient_clipnorm": 1.0,
