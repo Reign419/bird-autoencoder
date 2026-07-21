@@ -163,11 +163,14 @@ bird-autoencoder/
 │   ├── ordered_vector_equivalence.json
 │   ├── structured_comparison.json
 │   ├── loss_ablation.json
+│   ├── README.md
 │   ├── factorized_smoke.json
 │   ├── standalone_concept_pilot.json
 │   ├── factorized_capacity_pilot.json
-│   ├── factorized_concepts.json
-│   └── archive/factorized_corruption_legacy.json
+│   └── archive/
+│       ├── factorized_corruption_legacy.json
+│       ├── concept_pilot_joint_legacy.json
+│       └── factorized_concepts_preconfirmatory_legacy.json
 ├── analysis/
 │   ├── validate_stage1_config.py
 │   ├── refine_attribute_selection.py
@@ -322,9 +325,6 @@ python run_factorized.py --config configs/factorized_capacity_pilot.json
 The pilot compares active residual capacities 960/512/256/128 under fixed model
 parameter counts and does not evaluate official test.
 
-`configs/factorized_capacity_sweep.json` remains a validation-only compatibility
-alias; new experiments should use `factorized_capacity_pilot.json`.
-
 ### 6. Leakage probe
 
 ```bash
@@ -356,13 +356,16 @@ definitions are frozen:
 
 ## Archived experiments
 
-Mild and medium residual corruption were removed from the primary path until
-leakage and conditioning diagnostics are complete. Their historical config is
-preserved at:
+Historical configs are retained only for reproducibility:
 
 ```text
 configs/archive/factorized_corruption_legacy.json
+configs/archive/concept_pilot_joint_legacy.json
+configs/archive/factorized_concepts_preconfirmatory_legacy.json
 ```
+
+Use [`configs/README.md`](configs/README.md) as the authoritative active/archive
+configuration index.
 
 ---
 
