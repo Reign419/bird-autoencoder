@@ -1,7 +1,9 @@
 {
+  "archived": true,
+  "archive_reason": "Joint-model concept pilot retained only for historical reproducibility. Use configs/standalone_concept_pilot.json for the decoder-free observability gate.",
   "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
   "selected_attributes_path": "outputs/attribute_preparation/selected_attributes.json",
-  "output_path": "outputs/concept_pilot",
+  "output_path": "outputs/archive/concept_pilot_joint_legacy",
   "img_size": [64, 64],
   "validation_fraction": 0.15,
   "split_seed": 42,
@@ -26,7 +28,7 @@
   },
   "experiments": [
     {
-      "name": "pilot_standalone_concept_upper_bound",
+      "name": "archived_pilot_standalone_concept_upper_bound",
       "mode": "concept",
       "reconstruction_weight": 0.0,
       "concept_weight": 1.0,

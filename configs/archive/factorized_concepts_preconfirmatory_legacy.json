@@ -1,7 +1,9 @@
 {
+  "archived": true,
+  "archive_reason": "Pre-confirmatory mixed config does not match the frozen retained-capacity matrix and must not be used as an official-test release.",
   "cub_root": "/cephfs/users/qin/projects/datasets/CUB_200_2011",
   "selected_attributes_path": "outputs/attribute_preparation/selected_attributes_final.json",
-  "output_path": "outputs/factorized_concepts",
+  "output_path": "outputs/archive/factorized_concepts_preconfirmatory_legacy",
   "img_size": [64, 64],
   "validation_fraction": 0.15,
   "split_seed": 42,
@@ -29,7 +31,7 @@
   },
   "experiments": [
     {
-      "name": "factorized_clean_m",
+      "name": "archived_factorized_clean_m",
       "mode": "concept",
       "concept_weight": 1.0,
       "semantic_method": "ste",
@@ -37,14 +39,14 @@
       "residual_noise_std": 0.0
     },
     {
-      "name": "matched_binary_control",
+      "name": "archived_matched_binary_control",
       "mode": "control",
       "residual_dropout": 0.0,
       "residual_noise_std": 0.0,
       "semantic_method": "ste"
     },
     {
-      "name": "concept_only",
+      "name": "archived_concept_only",
       "mode": "concept_only",
       "concept_weight": 1.0,
       "semantic_method": "ste"
